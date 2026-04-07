@@ -1,0 +1,7 @@
+ignored_branches:
+- dependabot/*
+- renovate/*
+ignored_repos: []
+min_commit_chars: 50
+model: claude-sonnet-4-6
+vault_path: /Users/vishesh/Documents/dev-wiki
