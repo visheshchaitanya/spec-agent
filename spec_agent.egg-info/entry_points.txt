@@ -1,2 +1,0 @@
-[console_scripts]
-spec-agent = spec_agent.cli:cli
