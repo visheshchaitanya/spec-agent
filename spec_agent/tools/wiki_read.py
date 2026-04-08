@@ -15,7 +15,10 @@ def read_wiki_file(vault_path: str, relative_path: str) -> dict:
             "last_updated": str,     # ISO date from frontmatter or ""
         }
     """
-    full_path = Path(vault_path) / relative_path
+    full_path = (Path(vault_path) / relative_path).resolve()
+    vault_resolved = Path(vault_path).resolve()
+    if not str(full_path).startswith(str(vault_resolved) + "/") and full_path != vault_resolved:
+        return {"success": False, "path": relative_path, "content": None, "error": "Path traversal rejected"}
     if not full_path.exists():
         return {"exists": False, "content": "", "frontmatter": {}, "last_updated": ""}
 

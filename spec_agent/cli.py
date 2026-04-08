@@ -96,8 +96,8 @@ def run(repo, branch, messages, diff_file, config):
     diff = diff_path.read_text(encoding="utf-8", errors="replace") if diff_path.exists() else ""
     try:
         diff_path.unlink(missing_ok=True)
-    except Exception:
-        pass
+    except OSError as e:
+        console.print(f"[yellow]spec-agent: could not remove temp file {diff_path}: {e}[/yellow]")
 
     console.print(f"[cyan]spec-agent:[/cyan] processing push to {repo}/{branch}")
     run_agent(

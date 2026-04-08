@@ -6,11 +6,11 @@ from pathlib import Path
 
 def _find_grep() -> str:
     """Return path to system grep binary."""
-    for candidate in ["/usr/bin/grep", "/usr/local/bin/grep", "grep"]:
+    for candidate in ("ggrep", "grep"):
         found = shutil.which(candidate)
         if found:
             return found
-    return "grep"
+    return "grep"  # last resort, subprocess will raise clearly if missing
 
 
 def search_wiki(vault_path: str, query: str, limit: int = 5) -> list[dict]:
@@ -26,13 +26,15 @@ def search_wiki(vault_path: str, query: str, limit: int = 5) -> list[dict]:
     seen_files: set[str] = set()
 
     grep = _find_grep()
+    query = query.strip()[:500]
     # -r recursive, -i case-insensitive, -n line numbers, --include only .md
     # Output format: /path/file.md:linenum:matching line
-    cmd = [grep, "-r", "-i", "-n", "--include=*.md", query, str(vault)]
+    # -- separates options from the query to prevent flag injection
+    cmd = [grep, "-r", "-i", "-n", "--include=*.md", "--", query, str(vault)]
 
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-    except subprocess.TimeoutExpired:
+    except (subprocess.TimeoutExpired, FileNotFoundError):
         return []
 
     for line in proc.stdout.splitlines():
