@@ -14,21 +14,33 @@ console = Console()
 
 _HOOK_SCRIPT = """\
 #!/usr/bin/env bash
-# spec-agent post-push hook
-# Fires after every git push. Passes diff via temp file to avoid shell escaping issues.
+# spec-agent pre-push hook
+# Fires before every git push. Git passes the commit range via stdin.
 
 set -euo pipefail
 
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
-# Get commit range pushed
-RANGE=$(git log @{u}..HEAD --format="%H" 2>/dev/null | tail -1)
-if [ -z "$RANGE" ]; then
+# Git passes push info via stdin: <local ref> <local sha1> <remote ref> <remote sha1>
+LOCAL_SHA=""
+REMOTE_SHA=""
+while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
+    LOCAL_SHA="$local_sha"
+    REMOTE_SHA="$remote_sha"
+    break
+done
+
+if [ -z "$LOCAL_SHA" ]; then
     exit 0
 fi
 
-COMMITS=$(git log @{u}..HEAD --format="%s" 2>/dev/null)
+# When pushing a new branch, remote sha is all zeros — use the initial commit as base
+if [[ "$REMOTE_SHA" =~ ^0+$ ]]; then
+    REMOTE_SHA=$(git rev-list --max-parents=0 HEAD)
+fi
+
+COMMITS=$(git log "${REMOTE_SHA}..${LOCAL_SHA}" --format="%s" 2>/dev/null)
 MSG_LEN=$(echo "$COMMITS" | wc -c)
 MIN_CHARS=$(spec-agent config-get min_commit_chars 2>/dev/null || echo "50")
 
@@ -38,7 +50,7 @@ fi
 
 # Write diff to a temp file to safely handle special characters
 DIFF_FILE=$(mktemp /tmp/spec-agent-diff.XXXXXX)
-git diff @{u}..HEAD 2>/dev/null | head -c 50000 > "$DIFF_FILE"
+git diff "${REMOTE_SHA}..${LOCAL_SHA}" 2>/dev/null | head -c 50000 > "$DIFF_FILE"
 
 spec-agent run \\
     --repo "$REPO_NAME" \\
@@ -130,7 +142,7 @@ def install_hook():
     hooks_dir = Path.home() / ".git-hooks"
     hooks_dir.mkdir(exist_ok=True)
 
-    hook_path = hooks_dir / "post-push"
+    hook_path = hooks_dir / "pre-push"
     hook_path.write_text(_HOOK_SCRIPT)
     hook_path.chmod(0o755)
 
