@@ -12,7 +12,7 @@ Inspired by [Andrej Karpathy's LLM Wiki pattern](https://gist.github.com/karpath
 
 ```
 git push
-  └── ~/.git-hooks/post-push        ← global hook, fires on every repo
+  └── ~/.git-hooks/pre-push         ← global hook, fires on every repo
         └── spec-agent run           ← Python CLI
               └── Claude (tool-use)  ← agentic loop
                     ├── classify_commit
@@ -103,7 +103,13 @@ Then open `~/Documents/dev-wiki` as a vault in Obsidian (**File → Open vault a
 spec-agent install-hook
 ```
 
-This creates `~/.git-hooks/post-push` and sets `git config --global core.hooksPath ~/.git-hooks`. The hook fires on every push in every repository on your machine.
+This creates `~/.git-hooks/pre-push` and sets `git config --global core.hooksPath ~/.git-hooks`. The hook fires on every push in every repository on your machine.
+
+To disable at any time:
+
+```bash
+spec-agent uninstall-hook
+```
 
 ### 4. Push anything to test
 
@@ -213,10 +219,11 @@ Claude can then ask you to paste specific spec files for deeper context.
 spec-agent [COMMAND] [OPTIONS]
 
 Commands:
-  run           Run the agent (called automatically by git hook)
-  init          Initialize vault directory and write config
-  install-hook  Install global git post-push hook
-  config-get    Read a config value (used internally by hook)
+  run              Run the agent (called automatically by git hook)
+  init             Initialize vault directory and write config
+  install-hook     Install global git pre-push hook
+  uninstall-hook   Remove the global git pre-push hook
+  config-get       Read a config value (used internally by hook)
 ```
 
 ### `spec-agent run`
@@ -239,7 +246,11 @@ Options:
 
 ### `spec-agent install-hook`
 
-No options. Installs `~/.git-hooks/post-push` and sets the global git hooks path.
+No options. Installs `~/.git-hooks/pre-push` and sets the global git hooks path.
+
+### `spec-agent uninstall-hook`
+
+No options. Removes `~/.git-hooks/pre-push`, disabling automatic spec generation on push.
 
 ---
 
