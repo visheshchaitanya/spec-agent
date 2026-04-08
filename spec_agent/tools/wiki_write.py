@@ -15,7 +15,10 @@ def write_wiki_file(vault_path: str, relative_path: str, content: str, mode: str
     Returns:
         {"success": bool, "path": str, "error": str | None}
     """
-    full_path = Path(vault_path) / relative_path
+    full_path = (Path(vault_path) / relative_path).resolve()
+    vault_resolved = Path(vault_path).resolve()
+    if not str(full_path).startswith(str(vault_resolved) + "/") and full_path != vault_resolved:
+        return {"success": False, "path": relative_path, "error": "Path traversal rejected"}
     full_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
