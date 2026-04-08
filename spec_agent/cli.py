@@ -156,6 +156,22 @@ def install_hook():
     console.print("\n[bold]Done.[/bold] Every git push will now trigger spec-agent.")
 
 
+@cli.command("uninstall-hook")
+def uninstall_hook():
+    """Remove the global git pre-push hook."""
+    hooks_dir = Path.home() / ".git-hooks"
+    hook_path = hooks_dir / "pre-push"
+
+    if not hook_path.exists():
+        console.print("[yellow]spec-agent: hook not found — nothing to remove.[/yellow]")
+        return
+
+    hook_path.unlink()
+    console.print(f"[green]✓[/green] Hook removed from {hook_path}")
+    console.print("\n[bold]Done.[/bold] spec-agent will no longer run on git push.")
+    console.print("To re-enable: [bold]spec-agent install-hook[/bold]")
+
+
 @cli.command("config-get")
 @click.argument("key")
 @click.option("--config", default=str(DEFAULT_CONFIG_PATH))
