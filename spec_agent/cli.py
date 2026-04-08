@@ -41,16 +41,16 @@ if [[ "$REMOTE_SHA" =~ ^0+$ ]]; then
 fi
 
 COMMITS=$(git log "${REMOTE_SHA}..${LOCAL_SHA}" --format="%s" 2>/dev/null)
-MSG_LEN=$(echo "$COMMITS" | wc -c)
-MIN_CHARS=$(spec-agent config-get min_commit_chars 2>/dev/null || echo "50")
-
-if [ "$MSG_LEN" -lt "$MIN_CHARS" ]; then
-    exit 0
-fi
 
 # Write diff to a temp file to safely handle special characters
 DIFF_FILE=$(mktemp /tmp/spec-agent-diff.XXXXXX)
 git diff "${REMOTE_SHA}..${LOCAL_SHA}" 2>/dev/null | head -c 50000 > "$DIFF_FILE"
+
+# Skip if no actual file changes
+if [ ! -s "$DIFF_FILE" ]; then
+    rm -f "$DIFF_FILE"
+    exit 0
+fi
 
 spec-agent run \\
     --repo "$REPO_NAME" \\
