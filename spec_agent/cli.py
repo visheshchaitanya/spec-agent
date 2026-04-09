@@ -9,6 +9,12 @@ from rich.console import Console
 
 from spec_agent.agent import run_agent
 from spec_agent.config import Config, DEFAULT_CONFIG_PATH, load_config, save_config
+from spec_agent.ollama_setup import (
+    get_pulled_models,
+    is_ollama_installed,
+    is_ollama_running,
+    pull_model,
+)
 
 console = Console()
 
@@ -224,15 +230,34 @@ def configure(config):
         console.print("  mistral      — Mistral 7B, ~4 GB\n")
         url = click.prompt("Ollama server URL", default=cfg.ollama_url)
         model = click.prompt("Model name", default=cfg.ollama_model)
+
         cfg.llm_backend = "ollama"
         cfg.ollama_url = url
         cfg.ollama_model = model
         save_config(cfg, config_path)
         console.print(f"\n[green]✓[/green] Config saved → backend: ollama, model: {model}, url: {url}")
-        console.print("\n[bold]To install Ollama and pull the model:[/bold]")
-        console.print(f"[dim]  # 1. Install Ollama: https://ollama.com/download[/dim]")
-        console.print(f"[dim]  # 2. Pull your chosen model:  ollama pull {model}[/dim]")
-        console.print("\n[dim]Ollama starts automatically after install. To verify: ollama list[/dim]")
+
+        # Auto-detect Ollama and optionally pull the chosen model.
+        if not is_ollama_installed():
+            console.print("\n[yellow]Ollama is not installed on this machine.[/yellow]")
+            console.print("  Install it from: [bold]https://ollama.com/download[/bold]")
+            console.print(f"  Then pull your model:  [dim]ollama pull {model}[/dim]")
+        elif not is_ollama_running(url):
+            console.print("\n[yellow]Ollama is installed but not running.[/yellow]")
+            console.print("  Start it with: [dim]ollama serve[/dim]")
+            console.print(f"  Then pull your model if needed: [dim]ollama pull {model}[/dim]")
+        else:
+            pulled = get_pulled_models(url)
+            if model in pulled:
+                console.print(f"[green]✓[/green] Model [bold]{model}[/bold] is already available.")
+            elif click.confirm(f"\nModel '{model}' is not pulled yet. Pull it now?", default=True):
+                console.print(f"Pulling [bold]{model}[/bold] — this may take a few minutes…")
+                try:
+                    pull_model(model)
+                    console.print(f"[green]✓[/green] Model [bold]{model}[/bold] pulled successfully.")
+                except subprocess.CalledProcessError as exc:
+                    console.print(f"[red]Pull failed (exit {exc.returncode}).[/red]")
+                    console.print(f"  Run manually: [dim]ollama pull {model}[/dim]")
 
     elif backend == "gemini":
         console.print("\n[bold]Available Gemini models:[/bold]")

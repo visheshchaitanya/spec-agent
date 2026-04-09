@@ -85,15 +85,111 @@ class TestConfigure:
 
     def test_configure_ollama(self, runner: CliRunner, home: Path) -> None:
         cfg = self._cfg_file(home)
-        result = runner.invoke(
-            cli, ["configure", "--config", str(cfg)],
-            input="ollama\nhttp://192.168.1.10:11434\ngemma3\n",
-        )
+        with patch("spec_agent.cli.is_ollama_installed", return_value=False):
+            result = runner.invoke(
+                cli, ["configure", "--config", str(cfg)],
+                input="ollama\nhttp://192.168.1.10:11434\ngemma3\n",
+            )
         assert result.exit_code == 0, result.output
         data = yaml.safe_load(cfg.read_text())
         assert data["llm_backend"] == "ollama"
         assert data["ollama_url"] == "http://192.168.1.10:11434"
         assert data["ollama_model"] == "gemma3"
+
+    def test_configure_ollama_model_already_pulled(self, runner: CliRunner, home: Path) -> None:
+        cfg = self._cfg_file(home)
+        with (
+            patch("spec_agent.cli.is_ollama_installed", return_value=True),
+            patch("spec_agent.cli.is_ollama_running", return_value=True),
+            patch("spec_agent.cli.get_pulled_models", return_value=["qwen2.5:7b"]),
+        ):
+            result = runner.invoke(
+                cli, ["configure", "--config", str(cfg)],
+                input="ollama\nhttp://localhost:11434\nqwen2.5:7b\n",
+            )
+        assert result.exit_code == 0, result.output
+        assert "already available" in result.output
+
+    def test_configure_ollama_pull_on_confirm(self, runner: CliRunner, home: Path) -> None:
+        cfg = self._cfg_file(home)
+        with (
+            patch("spec_agent.cli.is_ollama_installed", return_value=True),
+            patch("spec_agent.cli.is_ollama_running", return_value=True),
+            patch("spec_agent.cli.get_pulled_models", return_value=[]),
+            patch("spec_agent.cli.pull_model") as mock_pull,
+        ):
+            result = runner.invoke(
+                cli, ["configure", "--config", str(cfg)],
+                input="ollama\nhttp://localhost:11434\nqwen2.5:7b\ny\n",
+            )
+        assert result.exit_code == 0, result.output
+        mock_pull.assert_called_once_with("qwen2.5:7b")
+        assert "pulled successfully" in result.output
+
+    def test_configure_ollama_skip_pull_on_deny(self, runner: CliRunner, home: Path) -> None:
+        cfg = self._cfg_file(home)
+        with (
+            patch("spec_agent.cli.is_ollama_installed", return_value=True),
+            patch("spec_agent.cli.is_ollama_running", return_value=True),
+            patch("spec_agent.cli.get_pulled_models", return_value=[]),
+            patch("spec_agent.cli.pull_model") as mock_pull,
+        ):
+            result = runner.invoke(
+                cli, ["configure", "--config", str(cfg)],
+                input="ollama\nhttp://localhost:11434\nqwen2.5:7b\nn\n",
+            )
+        assert result.exit_code == 0, result.output
+        mock_pull.assert_not_called()
+
+    def test_configure_ollama_not_installed_shows_install_instructions(
+        self, runner: CliRunner, home: Path
+    ) -> None:
+        cfg = self._cfg_file(home)
+        with patch("spec_agent.cli.is_ollama_installed", return_value=False):
+            result = runner.invoke(
+                cli, ["configure", "--config", str(cfg)],
+                input="ollama\nhttp://localhost:11434\nqwen2.5:7b\n",
+            )
+        assert result.exit_code == 0, result.output
+        assert "not installed" in result.output
+        assert "ollama.com/download" in result.output
+
+    def test_configure_ollama_not_running_shows_serve_instructions(
+        self, runner: CliRunner, home: Path
+    ) -> None:
+        cfg = self._cfg_file(home)
+        with (
+            patch("spec_agent.cli.is_ollama_installed", return_value=True),
+            patch("spec_agent.cli.is_ollama_running", return_value=False),
+        ):
+            result = runner.invoke(
+                cli, ["configure", "--config", str(cfg)],
+                input="ollama\nhttp://localhost:11434\nqwen2.5:7b\n",
+            )
+        assert result.exit_code == 0, result.output
+        assert "not running" in result.output
+        assert "ollama serve" in result.output
+
+    def test_configure_ollama_pull_failure_shows_error(
+        self, runner: CliRunner, home: Path
+    ) -> None:
+        import subprocess as _subprocess
+        cfg = self._cfg_file(home)
+        with (
+            patch("spec_agent.cli.is_ollama_installed", return_value=True),
+            patch("spec_agent.cli.is_ollama_running", return_value=True),
+            patch("spec_agent.cli.get_pulled_models", return_value=[]),
+            patch(
+                "spec_agent.cli.pull_model",
+                side_effect=_subprocess.CalledProcessError(1, ["ollama", "pull"]),
+            ),
+        ):
+            result = runner.invoke(
+                cli, ["configure", "--config", str(cfg)],
+                input="ollama\nhttp://localhost:11434\nqwen2.5:7b\ny\n",
+            )
+        assert result.exit_code == 0, result.output
+        assert "Pull failed" in result.output
 
     def test_configure_gemini(self, runner: CliRunner, home: Path) -> None:
         cfg = self._cfg_file(home)
@@ -109,18 +205,20 @@ class TestConfigure:
     def test_configure_invalid_backend_reprompts(self, runner: CliRunner, home: Path) -> None:
         cfg = self._cfg_file(home)
         # "invalid" is not a valid choice; click reprompts; then "ollama" succeeds
-        result = runner.invoke(
-            cli, ["configure", "--config", str(cfg)],
-            input="invalid\nollama\nhttp://localhost:11434\nqwen2.5:7b\n",
-        )
+        with patch("spec_agent.cli.is_ollama_installed", return_value=False):
+            result = runner.invoke(
+                cli, ["configure", "--config", str(cfg)],
+                input="invalid\nollama\nhttp://localhost:11434\nqwen2.5:7b\n",
+            )
         assert result.exit_code == 0, result.output
 
     def test_configure_shows_ollama_model_list(self, runner: CliRunner, home: Path) -> None:
         cfg = self._cfg_file(home)
-        result = runner.invoke(
-            cli, ["configure", "--config", str(cfg)],
-            input="ollama\n\n\n",
-        )
+        with patch("spec_agent.cli.is_ollama_installed", return_value=False):
+            result = runner.invoke(
+                cli, ["configure", "--config", str(cfg)],
+                input="ollama\n\n\n",
+            )
         assert "qwen2.5" in result.output
         assert "gemma3" in result.output
 
