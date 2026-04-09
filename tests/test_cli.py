@@ -1,7 +1,7 @@
 """Tests for CLI commands."""
 from __future__ import annotations
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 import yaml
@@ -197,6 +197,29 @@ class TestRun:
         ])
         assert result.exit_code == 0
         assert "vault not found" in result.output
+
+    def test_calls_agent_with_parsed_args(self, runner: CliRunner, home: Path, vault_dir) -> None:
+        cfg = home / "config.yaml"
+        cfg.write_text(f"vault_path: {vault_dir}\n")
+        diff_file = home / "diff.txt"
+        diff_file.write_text("some diff content")
+
+        with patch("spec_agent.cli.run_agent") as mock_agent:
+            result = runner.invoke(cli, [
+                "run",
+                "--repo", "my-app",
+                "--branch", "main",
+                "--messages", "feat: new feature\nfix: bug fix",
+                "--diff-file", str(diff_file),
+                "--config", str(cfg),
+            ])
+
+        assert result.exit_code == 0, result.output
+        mock_agent.assert_called_once()
+        call_kwargs = mock_agent.call_args.kwargs
+        assert call_kwargs["repo_name"] == "my-app"
+        assert call_kwargs["branch"] == "main"
+        assert call_kwargs["diff"] == "some diff content"
 
 
 # ---------------------------------------------------------------------------

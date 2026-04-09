@@ -15,7 +15,6 @@ git push
   └── ~/.git-hooks/pre-push         ← global hook, fires on every repo
         └── spec-agent run           ← Python CLI
               └── LLM (tool-use)     ← agentic loop (Anthropic / Ollama / Gemini)
-                    ├── classify_commit
                     ├── search_wiki       ← finds related existing pages
                     ├── read_wiki_file    ← reads context before updating
                     ├── write_wiki_file   ← creates or updates spec
@@ -23,8 +22,8 @@ git push
 ```
 
 The agent:
-1. Classifies the commit type (`feature`, `bug`, `refactor`, `arch`, `chore`)
-2. Searches your vault for related pages to link to
+1. Classifies the commit type from the message prefix (`feat→feature`, `fix→bug`, `refactor→refactor`, `chore→skip`)
+2. Searches your vault for related pages to link to (as many queries as needed)
 3. Writes an adaptive spec using the appropriate template
 4. Updates `index.md` — the master log that Claude reads at session start
 
@@ -403,7 +402,7 @@ All tests use temporary directories — no vault or API key required.
 
 ### Pluggable LLM backends
 
-The agent loop in `agent.py` is backend-agnostic. A backend is selected via `get_backend(cfg)` and implements a common interface:
+The agent loop in `agent.py` is backend-agnostic. A backend is selected via `get_backend(cfg)` and implements a common interface. The loop runs until `stop_reason == "end_turn"`, with a hard cap of 20 iterations to prevent runaway execution:
 
 ```
 LLMBackend
@@ -421,16 +420,18 @@ backend.chat(system, messages, tools)
   → stop_reason == "tool_use"
       → dispatch tool, collect results
       → backend.make_tool_results_messages(tool_calls, results)
-      → append to messages, loop
+      → append to messages, loop  (max 20 iterations)
   → stop_reason == "end_turn"
       → done
+  → API error (429 / 5xx / timeout)
+      → retry with backoff (max 3 attempts)
+      → abort cleanly if all retries exhausted
 ```
 
 ### Tools
 
 | Tool | Purpose |
 |------|---------|
-| `classify_commit` | Agent classifies diff type and extracts concepts (no-op server-side — agent reasons internally) |
 | `search_wiki` | Full-text search across vault using `grep -r` — finds related pages for wikilinks |
 | `read_wiki_file` | Reads existing spec file — enables update mode instead of duplicate creation |
 | `write_wiki_file` | Writes markdown to vault; `mode=update` appends a dated changelog section |
