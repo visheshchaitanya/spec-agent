@@ -183,3 +183,71 @@ def config_get(key, config):
         click.echo(str(value))
     else:
         sys.exit(1)
+
+
+@cli.command("configure")
+def configure():
+    """Interactively set up your LLM backend (no YAML editing required)."""
+    cfg = load_config()
+
+    console.print("[bold cyan]spec-agent configure[/bold cyan]\n")
+    console.print("Choose an LLM backend:\n")
+    console.print("  [bold]anthropic[/bold]  Cloud — best quality, requires [yellow]ANTHROPIC_API_KEY[/yellow]")
+    console.print("  [bold]ollama[/bold]     Local — free, runs on your machine (no API key)")
+    console.print("  [bold]gemini[/bold]     Cloud — free tier available, requires [yellow]GEMINI_API_KEY[/yellow]\n")
+
+    backend = click.prompt(
+        "Backend",
+        type=click.Choice(["anthropic", "ollama", "gemini"]),
+        default=cfg.llm_backend,
+    )
+
+    if backend == "anthropic":
+        model = click.prompt("Model", default=cfg.model)
+        cfg.llm_backend = "anthropic"
+        cfg.model = model
+        save_config(cfg)
+        console.print(f"\n[green]✓[/green] Config saved → backend: anthropic, model: {model}")
+        console.print("\n[bold]Set your API key (add to ~/.zshrc or ~/.bashrc to make it permanent):[/bold]")
+        console.print("[dim]  export ANTHROPIC_API_KEY=\"sk-ant-...\"[/dim]")
+
+    elif backend == "ollama":
+        console.print("\n[bold]Popular Ollama models:[/bold]")
+        console.print("  qwen2.5:7b   — fast, good reasoning, ~4 GB")
+        console.print("  qwen2.5:14b  — better quality, ~8 GB")
+        console.print("  gemma3       — Google Gemma 3 (12B), ~7 GB")
+        console.print("  llama3.2     — Meta Llama 3.2, ~2 GB")
+        console.print("  mistral      — Mistral 7B, ~4 GB\n")
+        url = click.prompt("Ollama server URL", default=cfg.ollama_url)
+        model = click.prompt("Model name", default=cfg.ollama_model)
+        cfg.llm_backend = "ollama"
+        cfg.ollama_url = url
+        cfg.ollama_model = model
+        save_config(cfg)
+        console.print(f"\n[green]✓[/green] Config saved → backend: ollama, model: {model}, url: {url}")
+        console.print("\n[bold]To install Ollama and pull the model:[/bold]")
+        console.print(f"[dim]  # 1. Install Ollama: https://ollama.com/download")
+        console.print(f"  # 2. Pull your chosen model:")
+        console.print(f"  ollama pull {model}[/dim]")
+        console.print("\n[dim]Ollama starts automatically after install. To check:[/dim]")
+        console.print("[dim]  ollama list[/dim]")
+
+    elif backend == "gemini":
+        console.print("\n[bold]Available Gemini models:[/bold]")
+        console.print("  gemini-2.0-flash   — fast, free tier, recommended")
+        console.print("  gemini-2.5-pro     — best quality, paid")
+        console.print("  gemma-3-27b-it     — open Gemma 3 model via Google API\n")
+        model = click.prompt("Model", default=cfg.gemini_model)
+        cfg.llm_backend = "gemini"
+        cfg.gemini_model = model
+        save_config(cfg)
+        console.print(f"\n[green]✓[/green] Config saved → backend: gemini, model: {model}")
+        console.print("\n[bold]Set your API key — get one free at https://aistudio.google.com:[/bold]")
+        console.print("[dim]  export GEMINI_API_KEY=\"AIza...\"[/dim]")
+        console.print("\n[bold]Add to ~/.zshrc or ~/.bashrc to make it permanent:[/bold]")
+        console.print("[dim]  echo 'export GEMINI_API_KEY=\"AIza...\"' >> ~/.zshrc[/dim]")
+
+    console.print(
+        f"\n[bold]Done.[/bold] Config lives at [dim]{DEFAULT_CONFIG_PATH}[/dim] — "
+        "run [bold]spec-agent configure[/bold] again to change it."
+    )

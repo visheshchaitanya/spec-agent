@@ -1,9 +1,8 @@
 from __future__ import annotations
 import json
-import os
-import anthropic
 from typing import Optional
 from spec_agent.config import Config
+from spec_agent.backends.factory import get_backend
 from spec_agent.tools.wiki_read import read_wiki_file
 from spec_agent.tools.wiki_write import write_wiki_file
 from spec_agent.tools.wiki_search import search_wiki
@@ -101,7 +100,6 @@ Use [[wikilink]] syntax for related pages you found via search_wiki. Keep specs 
 def _dispatch_tool(name: str, tool_input: dict, vault_path: str) -> str:
     if name == "classify_commit":
         # The agent classifies via its own reasoning — this tool is a no-op
-        # (the agent fills in the classification itself and returns structured JSON)
         return json.dumps({"status": "classified", "note": "Use your reasoning to determine type and concepts"})
     elif name == "search_wiki":
         results = search_wiki(vault_path, tool_input["query"], tool_input.get("limit", 5))
@@ -127,48 +125,40 @@ def run_agent(
     cfg: Config,
     _force_type: Optional[str] = None,  # test hook
 ) -> None:
-    """Run the tool-using agent loop."""
+    """Run the tool-using agent loop using the configured LLM backend."""
     # Test hook: skip API calls for known chore commits
     if _force_type == "chore":
         return
 
     vault_path = str(cfg.vault_path)
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    backend = get_backend(cfg)
 
-    user_message = (
+    user_content = (
         f"Repository: {repo_name}\n"
         f"Branch: {branch}\n"
         f"Commit messages:\n" + "\n".join(f"- {m}" for m in commit_messages) +
         f"\n\nGit diff (truncated to 50,000 chars):\n```\n{diff[:50_000]}\n```"
     )
 
-    messages = [{"role": "user", "content": user_message}]
+    messages = [backend.make_user_message(user_content)]
 
     while True:
-        response = client.messages.create(
-            model=cfg.model,
-            max_tokens=4096,
+        response = backend.chat(
             system=_SYSTEM_PROMPT,
-            tools=TOOL_DEFINITIONS,
             messages=messages,
+            tools=TOOL_DEFINITIONS,
+            max_tokens=4096,
         )
 
         if response.stop_reason == "end_turn":
             break
 
         if response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    result = _dispatch_tool(block.name, block.input, vault_path)
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result,
-                    })
-
-            messages.append({"role": "assistant", "content": response.content})
-            messages.append({"role": "user", "content": tool_results})
+            results = [
+                _dispatch_tool(tc.name, tc.arguments, vault_path)
+                for tc in response.tool_calls
+            ]
+            messages.append(response.raw_assistant_turn)
+            messages.extend(backend.make_tool_results_messages(response.tool_calls, results))
         else:
-            # Unexpected stop reason — exit
             break
