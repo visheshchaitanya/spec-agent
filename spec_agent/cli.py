@@ -112,9 +112,11 @@ def run(repo, branch, messages, diff_file, config):
 
 @cli.command()
 @click.option("--vault", required=True, help="Path to Obsidian vault directory")
-def init(vault):
+@click.option("--config", default=str(DEFAULT_CONFIG_PATH), help="Path to config.yaml")
+def init(vault, config):
     """Initialize vault and write config file."""
     vault_path = Path(vault).expanduser().resolve()
+    config_path = Path(config)
     vault_path.mkdir(parents=True, exist_ok=True)
 
     for folder in ["features", "bugs", "refactors", "concepts", "projects"]:
@@ -129,10 +131,10 @@ def init(vault):
         )
 
     cfg = Config(vault_path=vault_path)
-    save_config(cfg)
+    save_config(cfg, config_path)
 
     console.print(f"[green]✓[/green] Vault created at {vault_path}")
-    console.print(f"[green]✓[/green] Config saved to {DEFAULT_CONFIG_PATH}")
+    console.print(f"[green]✓[/green] Config saved to {config_path}")
     console.print("\nNext step: [bold]spec-agent install-hook[/bold]")
 
 
@@ -186,9 +188,11 @@ def config_get(key, config):
 
 
 @cli.command("configure")
-def configure():
+@click.option("--config", default=str(DEFAULT_CONFIG_PATH), help="Path to config.yaml")
+def configure(config):
     """Interactively set up your LLM backend (no YAML editing required)."""
-    cfg = load_config()
+    config_path = Path(config)
+    cfg = load_config(config_path)
 
     console.print("[bold cyan]spec-agent configure[/bold cyan]\n")
     console.print("Choose an LLM backend:\n")
@@ -206,10 +210,10 @@ def configure():
         model = click.prompt("Model", default=cfg.model)
         cfg.llm_backend = "anthropic"
         cfg.model = model
-        save_config(cfg)
+        save_config(cfg, config_path)
         console.print(f"\n[green]✓[/green] Config saved → backend: anthropic, model: {model}")
         console.print("\n[bold]Set your API key (add to ~/.zshrc or ~/.bashrc to make it permanent):[/bold]")
-        console.print("[dim]  export ANTHROPIC_API_KEY=\"sk-ant-...\"[/dim]")
+        console.print('[dim]  export ANTHROPIC_API_KEY="sk-ant-..."[/dim]')
 
     elif backend == "ollama":
         console.print("\n[bold]Popular Ollama models:[/bold]")
@@ -223,14 +227,12 @@ def configure():
         cfg.llm_backend = "ollama"
         cfg.ollama_url = url
         cfg.ollama_model = model
-        save_config(cfg)
+        save_config(cfg, config_path)
         console.print(f"\n[green]✓[/green] Config saved → backend: ollama, model: {model}, url: {url}")
         console.print("\n[bold]To install Ollama and pull the model:[/bold]")
-        console.print(f"[dim]  # 1. Install Ollama: https://ollama.com/download")
-        console.print(f"  # 2. Pull your chosen model:")
-        console.print(f"  ollama pull {model}[/dim]")
-        console.print("\n[dim]Ollama starts automatically after install. To check:[/dim]")
-        console.print("[dim]  ollama list[/dim]")
+        console.print(f"[dim]  # 1. Install Ollama: https://ollama.com/download[/dim]")
+        console.print(f"[dim]  # 2. Pull your chosen model:  ollama pull {model}[/dim]")
+        console.print("\n[dim]Ollama starts automatically after install. To verify: ollama list[/dim]")
 
     elif backend == "gemini":
         console.print("\n[bold]Available Gemini models:[/bold]")
@@ -240,14 +242,13 @@ def configure():
         model = click.prompt("Model", default=cfg.gemini_model)
         cfg.llm_backend = "gemini"
         cfg.gemini_model = model
-        save_config(cfg)
+        save_config(cfg, config_path)
         console.print(f"\n[green]✓[/green] Config saved → backend: gemini, model: {model}")
         console.print("\n[bold]Set your API key — get one free at https://aistudio.google.com:[/bold]")
-        console.print("[dim]  export GEMINI_API_KEY=\"AIza...\"[/dim]")
-        console.print("\n[bold]Add to ~/.zshrc or ~/.bashrc to make it permanent:[/bold]")
-        console.print("[dim]  echo 'export GEMINI_API_KEY=\"AIza...\"' >> ~/.zshrc[/dim]")
+        console.print('[dim]  export GEMINI_API_KEY="AIza..."[/dim]')
+        console.print('[dim]  echo \'export GEMINI_API_KEY="AIza..."\' >> ~/.zshrc[/dim]')
 
     console.print(
-        f"\n[bold]Done.[/bold] Config lives at [dim]{DEFAULT_CONFIG_PATH}[/dim] — "
+        f"\n[bold]Done.[/bold] Config lives at [dim]{config_path}[/dim] — "
         "run [bold]spec-agent configure[/bold] again to change it."
     )

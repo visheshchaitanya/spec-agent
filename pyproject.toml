@@ -71,3 +71,7 @@ include = ["spec_agent*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+# gemini_backend requires the optional google-genai extra; excluded from default CI coverage
+omit = ["spec_agent/backends/gemini_backend.py"]
