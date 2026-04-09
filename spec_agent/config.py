@@ -3,7 +3,6 @@ import fnmatch
 import yaml
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 DEFAULT_CONFIG_PATH = Path.home() / ".spec-agent" / "config.yaml"
 
@@ -15,6 +14,11 @@ class Config:
     ignored_repos: list[str] = field(default_factory=list)
     ignored_branches: list[str] = field(default_factory=lambda: ["dependabot/*", "renovate/*"])
     min_commit_chars: int = 50
+    # LLM backend selection
+    llm_backend: str = "anthropic"  # "anthropic" | "ollama" | "gemini"
+    ollama_url: str = "http://localhost:11434"
+    ollama_model: str = "qwen2.5:7b"
+    gemini_model: str = "gemini-2.0-flash"
 
     def is_repo_ignored(self, repo_name: str) -> bool:
         return repo_name in self.ignored_repos
@@ -30,6 +34,10 @@ def _defaults() -> dict:
         "ignored_repos": [],
         "ignored_branches": ["dependabot/*", "renovate/*"],
         "min_commit_chars": 50,
+        "llm_backend": "anthropic",
+        "ollama_url": "http://localhost:11434",
+        "ollama_model": "qwen2.5:7b",
+        "gemini_model": "gemini-2.0-flash",
     }
 
 
@@ -44,6 +52,10 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> Config:
         ignored_repos=data.get("ignored_repos", []),
         ignored_branches=data.get("ignored_branches", ["dependabot/*", "renovate/*"]),
         min_commit_chars=int(data.get("min_commit_chars", 50)),
+        llm_backend=data.get("llm_backend", "anthropic"),
+        ollama_url=data.get("ollama_url", "http://localhost:11434"),
+        ollama_model=data.get("ollama_model", "qwen2.5:7b"),
+        gemini_model=data.get("gemini_model", "gemini-2.0-flash"),
     )
 
 
@@ -56,4 +68,8 @@ def save_config(cfg: Config, config_path: Path = DEFAULT_CONFIG_PATH) -> None:
             "ignored_repos": cfg.ignored_repos,
             "ignored_branches": cfg.ignored_branches,
             "min_commit_chars": cfg.min_commit_chars,
+            "llm_backend": cfg.llm_backend,
+            "ollama_url": cfg.ollama_url,
+            "ollama_model": cfg.ollama_model,
+            "gemini_model": cfg.gemini_model,
         }, f, default_flow_style=False)

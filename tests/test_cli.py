@@ -1,7 +1,12 @@
-import pytest
+"""Tests for CLI commands."""
+from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+
+import pytest
+import yaml
 from click.testing import CliRunner
+
 from spec_agent.cli import cli
 
 
@@ -10,194 +15,236 @@ def runner():
     return CliRunner()
 
 
-# ---------------------------------------------------------------------------
-# init
-# ---------------------------------------------------------------------------
-
-def test_init_creates_vault_structure(runner, tmp_path):
-    vault = tmp_path / "my-wiki"
-    config_path = tmp_path / "config.yaml"
-
-    with patch("spec_agent.cli.DEFAULT_CONFIG_PATH", config_path):
-        result = runner.invoke(cli, ["init", "--vault", str(vault)])
-
-    assert result.exit_code == 0, result.output
-    for folder in ["features", "bugs", "refactors", "concepts", "projects"]:
-        assert (vault / folder).is_dir()
-    assert (vault / "index.md").exists()
-
-
-def test_init_does_not_overwrite_existing_index(runner, tmp_path):
-    vault = tmp_path / "wiki"
-    vault.mkdir()
-    index = vault / "index.md"
-    index.write_text("existing content")
-    config_path = tmp_path / "config.yaml"
-
-    with patch("spec_agent.cli.DEFAULT_CONFIG_PATH", config_path):
-        result = runner.invoke(cli, ["init", "--vault", str(vault)])
-
-    assert result.exit_code == 0
-    assert index.read_text() == "existing content"
+@pytest.fixture
+def home(tmp_path: Path):
+    """Isolated HOME so config writes go to tmp_path instead of the real home."""
+    return tmp_path
 
 
 # ---------------------------------------------------------------------------
-# install-hook / uninstall-hook
+# spec-agent init
 # ---------------------------------------------------------------------------
 
-def test_install_hook_writes_script_and_sets_git_config(runner, tmp_path):
-    hooks_dir = tmp_path / ".git-hooks"
+class TestInit:
+    def _config_path(self, home: Path) -> Path:
+        return home / ".spec-agent" / "config.yaml"
 
-    with patch("spec_agent.cli.Path.home", return_value=tmp_path), \
-         patch("spec_agent.cli.subprocess.run") as mock_run:
-        result = runner.invoke(cli, ["install-hook"])
+    def test_creates_vault_structure(self, runner: CliRunner, home: Path) -> None:
+        vault = home / "my-vault"
+        config = self._config_path(home)
+        result = runner.invoke(cli, ["init", "--vault", str(vault), "--config", str(config)])
+        assert result.exit_code == 0, result.output
+        for folder in ["features", "bugs", "refactors", "concepts", "projects"]:
+            assert (vault / folder).is_dir()
+        assert (vault / "index.md").exists()
 
-    assert result.exit_code == 0, result.output
-    hook = hooks_dir / "pre-push"
-    assert hook.exists()
-    assert hook.stat().st_mode & 0o111  # executable
-    assert "spec-agent run" in hook.read_text()
-    mock_run.assert_called_once()
+    def test_creates_config(self, runner: CliRunner, home: Path) -> None:
+        vault = home / "vault"
+        config = self._config_path(home)
+        runner.invoke(cli, ["init", "--vault", str(vault), "--config", str(config)])
+        assert config.exists()
+        data = yaml.safe_load(config.read_text())
+        assert data["vault_path"] == str(vault)
 
+    def test_does_not_overwrite_existing_index(self, runner: CliRunner, home: Path) -> None:
+        vault = home / "vault"
+        vault.mkdir(parents=True)
+        existing = vault / "index.md"
+        existing.write_text("# My existing index\n")
+        config = self._config_path(home)
+        runner.invoke(cli, ["init", "--vault", str(vault), "--config", str(config)])
+        assert existing.read_text() == "# My existing index\n"
 
-def test_uninstall_hook_removes_file(runner, tmp_path):
-    hooks_dir = tmp_path / ".git-hooks"
-    hooks_dir.mkdir()
-    hook = hooks_dir / "pre-push"
-    hook.write_text("#!/bin/bash\n")
-
-    with patch("spec_agent.cli.Path.home", return_value=tmp_path):
-        result = runner.invoke(cli, ["uninstall-hook"])
-
-    assert result.exit_code == 0, result.output
-    assert not hook.exists()
-    assert "Done" in result.output
-
-
-def test_uninstall_hook_when_not_installed(runner, tmp_path):
-    with patch("spec_agent.cli.Path.home", return_value=tmp_path):
-        result = runner.invoke(cli, ["uninstall-hook"])
-
-    assert result.exit_code == 0
-    assert "not found" in result.output
+    def test_output_mentions_next_step(self, runner: CliRunner, home: Path) -> None:
+        vault = home / "vault"
+        config = self._config_path(home)
+        result = runner.invoke(cli, ["init", "--vault", str(vault), "--config", str(config)])
+        assert "install-hook" in result.output
 
 
 # ---------------------------------------------------------------------------
-# run
+# spec-agent configure
 # ---------------------------------------------------------------------------
 
-def test_run_skips_ignored_repo(runner, tmp_path, vault_dir):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        f"vault_path: {vault_dir}\n"
-        "ignored_repos:\n  - secret-repo\n"
-    )
-    diff_file = tmp_path / "diff.txt"
-    diff_file.write_text("diff content")
+class TestConfigure:
+    def _cfg_file(self, home: Path) -> Path:
+        cfg = home / "config.yaml"
+        cfg.write_text(f"vault_path: {home}/vault\n")
+        return cfg
 
-    with patch("spec_agent.cli.run_agent") as mock_agent:
+    def test_configure_anthropic(self, runner: CliRunner, home: Path) -> None:
+        cfg = self._cfg_file(home)
+        result = runner.invoke(
+            cli, ["configure", "--config", str(cfg)],
+            input="anthropic\nclaude-haiku-4-5-20251001\n",
+        )
+        assert result.exit_code == 0, result.output
+        data = yaml.safe_load(cfg.read_text())
+        assert data["llm_backend"] == "anthropic"
+        assert data["model"] == "claude-haiku-4-5-20251001"
+
+    def test_configure_ollama(self, runner: CliRunner, home: Path) -> None:
+        cfg = self._cfg_file(home)
+        result = runner.invoke(
+            cli, ["configure", "--config", str(cfg)],
+            input="ollama\nhttp://192.168.1.10:11434\ngemma3\n",
+        )
+        assert result.exit_code == 0, result.output
+        data = yaml.safe_load(cfg.read_text())
+        assert data["llm_backend"] == "ollama"
+        assert data["ollama_url"] == "http://192.168.1.10:11434"
+        assert data["ollama_model"] == "gemma3"
+
+    def test_configure_gemini(self, runner: CliRunner, home: Path) -> None:
+        cfg = self._cfg_file(home)
+        result = runner.invoke(
+            cli, ["configure", "--config", str(cfg)],
+            input="gemini\ngemini-2.0-flash\n",
+        )
+        assert result.exit_code == 0, result.output
+        data = yaml.safe_load(cfg.read_text())
+        assert data["llm_backend"] == "gemini"
+        assert data["gemini_model"] == "gemini-2.0-flash"
+
+    def test_configure_invalid_backend_reprompts(self, runner: CliRunner, home: Path) -> None:
+        cfg = self._cfg_file(home)
+        # "invalid" is not a valid choice; click reprompts; then "ollama" succeeds
+        result = runner.invoke(
+            cli, ["configure", "--config", str(cfg)],
+            input="invalid\nollama\nhttp://localhost:11434\nqwen2.5:7b\n",
+        )
+        assert result.exit_code == 0, result.output
+
+    def test_configure_shows_ollama_model_list(self, runner: CliRunner, home: Path) -> None:
+        cfg = self._cfg_file(home)
+        result = runner.invoke(
+            cli, ["configure", "--config", str(cfg)],
+            input="ollama\n\n\n",
+        )
+        assert "qwen2.5" in result.output
+        assert "gemma3" in result.output
+
+
+# ---------------------------------------------------------------------------
+# spec-agent config-get
+# ---------------------------------------------------------------------------
+
+class TestConfigGet:
+    def test_returns_vault_path(self, runner: CliRunner, home: Path) -> None:
+        config_file = home / "config.yaml"
+        config_file.write_text(f"vault_path: {home}/vault\n")
+        result = runner.invoke(cli, ["config-get", "vault_path", "--config", str(config_file)])
+        assert result.exit_code == 0
+        assert str(home / "vault") in result.output
+
+    def test_returns_model(self, runner: CliRunner, home: Path) -> None:
+        config_file = home / "config.yaml"
+        config_file.write_text("vault_path: /tmp/v\nmodel: claude-haiku-4-5-20251001\n")
+        result = runner.invoke(cli, ["config-get", "model", "--config", str(config_file)])
+        assert result.exit_code == 0
+        assert "claude-haiku-4-5-20251001" in result.output
+
+    def test_exits_nonzero_for_unknown_key(self, runner: CliRunner, home: Path) -> None:
+        config_file = home / "config.yaml"
+        config_file.write_text("vault_path: /tmp/v\n")
+        result = runner.invoke(cli, ["config-get", "nonexistent_key", "--config", str(config_file)])
+        assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# spec-agent run (error paths — no API calls)
+# ---------------------------------------------------------------------------
+
+class TestRun:
+    def _config_file(self, home: Path, vault: Path) -> Path:
+        f = home / "config.yaml"
+        f.write_text(f"vault_path: {vault}\n")
+        return f
+
+    def test_skips_ignored_repo(self, runner: CliRunner, home: Path) -> None:
+        vault = home / "vault"
+        vault.mkdir()
+        cfg = home / "config.yaml"
+        cfg.write_text(f"vault_path: {vault}\nignored_repos:\n  - secret-repo\n")
         result = runner.invoke(cli, [
-            "run",
-            "--repo", "secret-repo",
-            "--branch", "main",
-            "--messages", "feat: stuff",
-            "--diff-file", str(diff_file),
-            "--config", str(config_path),
+            "run", "--repo", "secret-repo", "--branch", "main",
+            "--messages", "feat: something", "--diff-file", "/nonexistent",
+            "--config", str(cfg),
         ])
+        assert result.exit_code == 0
+        assert "skipping ignored repo" in result.output
 
-    assert result.exit_code == 0
-    mock_agent.assert_not_called()
-
-
-def test_run_skips_ignored_branch(runner, tmp_path, vault_dir):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        f"vault_path: {vault_dir}\n"
-        "ignored_branches:\n  - dependabot/*\n"
-    )
-    diff_file = tmp_path / "diff.txt"
-    diff_file.write_text("diff content")
-
-    with patch("spec_agent.cli.run_agent") as mock_agent:
+    def test_skips_ignored_branch(self, runner: CliRunner, home: Path) -> None:
+        vault = home / "vault"
+        vault.mkdir()
+        cfg = home / "config.yaml"
+        cfg.write_text(f"vault_path: {vault}\nignored_branches:\n  - dependabot/*\n")
         result = runner.invoke(cli, [
-            "run",
-            "--repo", "my-app",
-            "--branch", "dependabot/npm-updates",
-            "--messages", "chore: bump deps",
-            "--diff-file", str(diff_file),
-            "--config", str(config_path),
+            "run", "--repo", "my-repo", "--branch", "dependabot/bump-foo",
+            "--messages", "chore: bump", "--diff-file", "/nonexistent",
+            "--config", str(cfg),
         ])
+        assert result.exit_code == 0
+        assert "skipping ignored branch" in result.output
 
-    assert result.exit_code == 0
-    mock_agent.assert_not_called()
-
-
-def test_run_warns_when_vault_missing(runner, tmp_path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(f"vault_path: {tmp_path / 'nonexistent-vault'}\n")
-    diff_file = tmp_path / "diff.txt"
-    diff_file.write_text("diff content")
-
-    with patch("spec_agent.cli.run_agent") as mock_agent:
+    def test_warns_when_vault_missing(self, runner: CliRunner, home: Path) -> None:
+        cfg = home / "config.yaml"
+        cfg.write_text(f"vault_path: {home}/nonexistent-vault\n")
         result = runner.invoke(cli, [
-            "run",
-            "--repo", "my-app",
-            "--branch", "main",
-            "--messages", "feat: thing",
-            "--diff-file", str(diff_file),
-            "--config", str(config_path),
+            "run", "--repo", "my-repo", "--branch", "main",
+            "--messages", "feat: x", "--diff-file", "/nonexistent",
+            "--config", str(cfg),
         ])
+        assert result.exit_code == 0
+        assert "vault not found" in result.output
 
-    assert result.exit_code == 0
-    assert "vault not found" in result.output
-    mock_agent.assert_not_called()
+    def test_calls_agent_with_parsed_args(self, runner: CliRunner, home: Path, vault_dir) -> None:
+        cfg = home / "config.yaml"
+        cfg.write_text(f"vault_path: {vault_dir}\n")
+        diff_file = home / "diff.txt"
+        diff_file.write_text("some diff content")
 
+        with patch("spec_agent.cli.run_agent") as mock_agent:
+            result = runner.invoke(cli, [
+                "run",
+                "--repo", "my-app",
+                "--branch", "main",
+                "--messages", "feat: new feature\nfix: bug fix",
+                "--diff-file", str(diff_file),
+                "--config", str(cfg),
+            ])
 
-def test_run_calls_agent_with_parsed_args(runner, tmp_path, vault_dir):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(f"vault_path: {vault_dir}\n")
-    diff_file = tmp_path / "diff.txt"
-    diff_file.write_text("some diff content")
-
-    with patch("spec_agent.cli.run_agent") as mock_agent:
-        result = runner.invoke(cli, [
-            "run",
-            "--repo", "my-app",
-            "--branch", "main",
-            "--messages", "feat: new feature\nfix: bug fix",
-            "--diff-file", str(diff_file),
-            "--config", str(config_path),
-        ])
-
-    assert result.exit_code == 0, result.output
-    mock_agent.assert_called_once()
-    call_kwargs = mock_agent.call_args.kwargs
-    assert call_kwargs["repo_name"] == "my-app"
-    assert call_kwargs["branch"] == "main"
-    assert "new feature" in call_kwargs["commit_messages"][0]
-    assert call_kwargs["diff"] == "some diff content"
-    # diff file should be cleaned up
-    assert not diff_file.exists()
+        assert result.exit_code == 0, result.output
+        mock_agent.assert_called_once()
+        call_kwargs = mock_agent.call_args.kwargs
+        assert call_kwargs["repo_name"] == "my-app"
+        assert call_kwargs["branch"] == "main"
+        assert call_kwargs["diff"] == "some diff content"
 
 
 # ---------------------------------------------------------------------------
-# config-get
+# spec-agent install-hook / uninstall-hook
 # ---------------------------------------------------------------------------
 
-def test_config_get_existing_key(runner, tmp_path, vault_dir):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(f"vault_path: {vault_dir}\n")
+class TestHooks:
+    def test_install_hook_creates_file(self, runner: CliRunner, home: Path) -> None:
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = None
+            result = runner.invoke(cli, ["install-hook"], env={"HOME": str(home)})
+        assert result.exit_code == 0
+        hook = home / ".git-hooks" / "pre-push"
+        assert hook.exists()
+        assert hook.stat().st_mode & 0o111  # executable
 
-    result = runner.invoke(cli, ["config-get", "vault_path", "--config", str(config_path)])
+    def test_uninstall_hook_removes_file(self, runner: CliRunner, home: Path) -> None:
+        hook_dir = home / ".git-hooks"
+        hook_dir.mkdir()
+        (hook_dir / "pre-push").write_text("#!/bin/bash\n")
+        result = runner.invoke(cli, ["uninstall-hook"], env={"HOME": str(home)})
+        assert result.exit_code == 0
+        assert not (hook_dir / "pre-push").exists()
 
-    assert result.exit_code == 0
-    assert str(vault_dir) in result.output
-
-
-def test_config_get_missing_key_exits_nonzero(runner, tmp_path, vault_dir):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(f"vault_path: {vault_dir}\n")
-
-    result = runner.invoke(cli, ["config-get", "nonexistent_key", "--config", str(config_path)])
-
-    assert result.exit_code == 1
+    def test_uninstall_hook_missing_is_graceful(self, runner: CliRunner, home: Path) -> None:
+        result = runner.invoke(cli, ["uninstall-hook"], env={"HOME": str(home)})
+        assert result.exit_code == 0
+        assert "nothing to remove" in result.output

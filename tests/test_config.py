@@ -12,6 +12,10 @@ def test_load_config_defaults(tmp_path):
     assert cfg.ignored_repos == []
     assert cfg.ignored_branches == ["dependabot/*", "renovate/*"]
     assert cfg.min_commit_chars == 50
+    assert cfg.llm_backend == "anthropic"
+    assert cfg.ollama_url == "http://localhost:11434"
+    assert cfg.ollama_model == "qwen2.5:7b"
+    assert cfg.gemini_model == "gemini-2.0-flash"
 
 
 def test_load_config_from_file(tmp_path):
@@ -38,12 +42,19 @@ def test_save_config(tmp_path):
         ignored_repos=["my-private-repo"],
         ignored_branches=["dependabot/*"],
         min_commit_chars=75,
+        llm_backend="ollama",
+        ollama_url="http://192.168.1.10:11434",
+        ollama_model="qwen2.5:14b",
+        gemini_model="gemini-2.0-flash",
     )
     save_config(cfg, config_path=config_file)
     reloaded = load_config(config_path=config_file)
     assert reloaded.vault_path == tmp_path / "vault"
     assert reloaded.ignored_repos == ["my-private-repo"]
     assert reloaded.min_commit_chars == 75
+    assert reloaded.llm_backend == "ollama"
+    assert reloaded.ollama_url == "http://192.168.1.10:11434"
+    assert reloaded.ollama_model == "qwen2.5:14b"
 
 
 def test_is_repo_ignored(tmp_path):

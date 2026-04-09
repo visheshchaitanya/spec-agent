@@ -1,11 +1,9 @@
 from __future__ import annotations
 import json
 import logging
-import os
-import time
-import anthropic
 from typing import Optional
 from spec_agent.config import Config
+from spec_agent.backends.factory import get_backend
 from spec_agent.tools.wiki_read import read_wiki_file
 from spec_agent.tools.wiki_write import write_wiki_file
 from spec_agent.tools.wiki_search import search_wiki
@@ -189,11 +187,7 @@ Rules:
 - Be thorough: specs should be detailed enough to be useful for future developers.
 """
 
-# Retryable HTTP status codes and exception types
-_RETRYABLE_STATUS = {429, 500, 502, 503, 529}
-_MAX_RETRIES = 3
 _MAX_ITERATIONS = 20  # hard cap on tool-use loop iterations to prevent runaway loops
-_RETRY_BASE_DELAY = 2.0  # seconds
 
 
 def _dispatch_tool(name: str, tool_input: dict, vault_path: str) -> str:
@@ -213,35 +207,6 @@ def _dispatch_tool(name: str, tool_input: dict, vault_path: str) -> str:
         return json.dumps({"error": f"Unknown tool: {name}"})
 
 
-def _call_api_with_retry(client: anthropic.Anthropic, **kwargs) -> anthropic.types.Message:
-    """Call the Anthropic API with exponential-backoff retry on transient errors."""
-    for attempt in range(_MAX_RETRIES):
-        try:
-            return client.messages.create(**kwargs)
-        except anthropic.RateLimitError as exc:
-            delay = _RETRY_BASE_DELAY * (2 ** attempt)
-            logger.warning("spec-agent: rate limited (attempt %d/%d), retrying in %.1fs", attempt + 1, _MAX_RETRIES, delay)
-            time.sleep(delay)
-        except anthropic.APIStatusError as exc:
-            if exc.status_code in _RETRYABLE_STATUS:
-                delay = _RETRY_BASE_DELAY * (2 ** attempt)
-                logger.warning(
-                    "spec-agent: API error %d (attempt %d/%d), retrying in %.1fs",
-                    exc.status_code, attempt + 1, _MAX_RETRIES, delay,
-                )
-                time.sleep(delay)
-            else:
-                # Non-retryable (e.g. 400 Bad Request, 401 Unauthorized)
-                logger.error("spec-agent: non-retryable API error %d: %s", exc.status_code, exc.message)
-                raise
-        except (anthropic.APIConnectionError, anthropic.APITimeoutError) as exc:
-            delay = _RETRY_BASE_DELAY * (2 ** attempt)
-            logger.warning("spec-agent: connection/timeout error (attempt %d/%d), retrying in %.1fs", attempt + 1, _MAX_RETRIES, delay)
-            time.sleep(delay)
-
-    raise RuntimeError(f"spec-agent: API call failed after {_MAX_RETRIES} retries — aborting.")
-
-
 def run_agent(
     diff: str,
     commit_messages: list[str],
@@ -250,13 +215,13 @@ def run_agent(
     cfg: Config,
     _force_type: Optional[str] = None,  # test hook
 ) -> None:
-    """Run the tool-using agent loop."""
+    """Run the tool-using agent loop using the configured LLM backend."""
     # Test hook: skip API calls for known chore commits
     if _force_type == "chore":
         return
 
     vault_path = str(cfg.vault_path)
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    backend = get_backend(cfg)
 
     user_message = (
         "Classify this push as one of: feature | bug | refactor | arch | chore.\n"
@@ -268,46 +233,28 @@ def run_agent(
         f"\n\nGit diff (truncated to 50,000 chars):\n```\n{diff[:50_000]}\n```"
     )
 
-    messages = [{"role": "user", "content": user_message}]
+    messages = [backend.make_user_message(user_message)]
     iteration = 0
 
     while iteration < _MAX_ITERATIONS:
         iteration += 1
-
-        try:
-            response = _call_api_with_retry(
-                client,
-                model=cfg.model,
-                max_tokens=4096,
-                system=_SYSTEM_PROMPT,
-                tools=TOOL_DEFINITIONS,
-                messages=messages,
-            )
-        except RuntimeError as exc:
-            # All retries exhausted — log and exit cleanly
-            logger.error("%s", exc)
-            return
-        except anthropic.APIError as exc:
-            # Non-retryable error surfaced from _call_api_with_retry
-            logger.error("spec-agent: unrecoverable API error, aborting: %s", exc)
-            return
+        response = backend.chat(
+            system=_SYSTEM_PROMPT,
+            messages=messages,
+            tools=TOOL_DEFINITIONS,
+            max_tokens=4096,
+        )
 
         if response.stop_reason == "end_turn":
             break
 
         if response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    result = _dispatch_tool(block.name, block.input, vault_path)
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result,
-                    })
-
-            messages.append({"role": "assistant", "content": response.content})
-            messages.append({"role": "user", "content": tool_results})
+            results = [
+                _dispatch_tool(tc.name, tc.arguments, vault_path)
+                for tc in response.tool_calls
+            ]
+            messages.append(response.raw_assistant_turn)
+            messages.extend(backend.make_tool_results_messages(response.tool_calls, results))
         else:
             # Unexpected stop reason (e.g. "max_tokens") — exit cleanly
             logger.warning("spec-agent: unexpected stop_reason=%r at iteration %d, aborting", response.stop_reason, iteration)
