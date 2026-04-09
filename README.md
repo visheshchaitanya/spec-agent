@@ -15,7 +15,6 @@ git push
   └── ~/.git-hooks/pre-push         ← global hook, fires on every repo
         └── spec-agent run           ← Python CLI
               └── Claude (tool-use)  ← agentic loop
-                    ├── classify_commit
                     ├── search_wiki       ← finds related existing pages
                     ├── read_wiki_file    ← reads context before updating
                     ├── write_wiki_file   ← creates or updates spec
@@ -23,8 +22,8 @@ git push
 ```
 
 The agent:
-1. Classifies the commit type (`feature`, `bug`, `refactor`, `arch`, `chore`)
-2. Searches your vault for related pages to link to
+1. Classifies the commit type from the message prefix (`feat→feature`, `fix→bug`, `refactor→refactor`, `chore→skip`)
+2. Searches your vault for related pages to link to (as many queries as needed)
 3. Writes an adaptive spec using the appropriate template
 4. Updates `index.md` — the master log that Claude reads at session start
 
@@ -313,23 +312,25 @@ All tests use temporary directories — no vault or API key required.
 
 ### Tool-using agent loop
 
-The agent runs an Anthropic `messages.create` loop until `stop_reason == "end_turn"`:
+The agent runs an Anthropic `messages.create` loop until `stop_reason == "end_turn"`. API calls use exponential-backoff retry (up to 3 attempts) for transient errors (rate-limits, 5xx, connection timeouts). A hard cap of 20 loop iterations prevents runaway execution.
 
 ```
 client.messages.create(tools=TOOL_DEFINITIONS, ...)
   → stop_reason == "tool_use"
       → dispatch tool, collect results
       → append assistant + user messages
-      → loop
+      → loop  (max 20 iterations)
   → stop_reason == "end_turn"
       → done
+  → API error (429 / 5xx / timeout)
+      → retry with backoff (max 3 attempts)
+      → abort cleanly if all retries exhausted
 ```
 
 ### Tools
 
 | Tool | Purpose |
 |------|---------|
-| `classify_commit` | Agent classifies diff type and extracts concepts (no-op server-side — agent reasons internally) |
 | `search_wiki` | Full-text search across vault using `grep -r` — finds related pages for wikilinks |
 | `read_wiki_file` | Reads existing spec file — enables update mode instead of duplicate creation |
 | `write_wiki_file` | Writes markdown to vault; `mode=update` appends a dated changelog section |

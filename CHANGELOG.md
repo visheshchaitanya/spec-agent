@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `spec_agent/agent.py`: removed the `classify_commit` no-op tool — commit type is now determined entirely from the message prefix inside the system prompt, saving one API round-trip per invocation
+- `spec_agent/agent.py`: system prompt now embeds explicit markdown templates for all four spec types (`feature`, `bug`, `refactor`, `arch`) to produce consistent, well-structured output
+- `spec_agent/agent.py`: `write_wiki_file` tool description clarified to distinguish `create` vs `update` mode; `update_index` type enum extended with `"concept"` and `"project"` to match vault folder structure
+- `spec_agent/agent.py`: user message now prepends commit-type classification instruction so the model has the signal at the top of context
+
+### Added
+- `spec_agent/agent.py`: `_call_api_with_retry()` — exponential-backoff retry (up to 3 attempts, 2 s base delay) for transient Anthropic API errors: rate-limits (429), server errors (500/502/503/529), connection errors, and timeouts
+- `spec_agent/agent.py`: hard cap of 20 tool-use loop iterations to prevent runaway agent loops
+- `spec_agent/agent.py`: graceful exit on unexpected `stop_reason` values (e.g. `"max_tokens"`) with a warning log
+
 ## [0.1.0] — 2026-04-07
 
 Initial release.
