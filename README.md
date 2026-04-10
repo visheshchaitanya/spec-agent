@@ -34,6 +34,7 @@ The agent:
 ## Features
 
 - **Zero friction** — fires automatically on every `git push`, no developer action needed
+- **Cold-start KB bootstrap** — `spec-agent init-repo` scans an existing codebase and writes a structured knowledge base into the vault before any pushes have occurred
 - **Pluggable LLM backends** — use Anthropic (cloud), Ollama (local/free), or Gemini (free tier)
 - **Adaptive templates** — selects the right format based on commit type
   - `feature` → full spec (summary, problem, implementation, files, open questions)
@@ -44,6 +45,7 @@ The agent:
 - **Living index** — `index.md` is a table of every spec ever written; share it with Claude at session start to give it full project memory
 - **Obsidian graph** — concepts referenced by many specs become visual hubs after 10+ specs
 - **Works on every repo** — one global hook installation covers all your projects
+- **Per-repo opt-out** — exclude specific repos from the global hook with a single command
 
 ---
 
@@ -261,7 +263,10 @@ gemini_model: gemini-2.0-flash
 │   ├── clickhouse.md
 │   └── jwt.md
 └── projects/
-    └── my-app.md
+    └── my-app/
+        ├── overview.md         ← created by init-repo
+        ├── AuthService.md
+        └── ApiGateway.md
 ```
 
 ### index.md — your project memory
@@ -305,8 +310,11 @@ spec-agent [COMMAND] [OPTIONS]
 Commands:
   configure        Interactively set up your LLM backend (recommended)
   init             Initialize vault directory and write config
+  init-repo        Bootstrap a knowledge base for the current repo
   install-hook     Install global git pre-push hook
   uninstall-hook   Remove the global git pre-push hook
+  opt-out          Exclude current repo from the global hook
+  opt-in           Re-include current repo in the global hook
   run              Run the agent (called automatically by git hook)
   config-get       Read a config value (used internally by hook)
 ```
@@ -321,6 +329,24 @@ Interactive setup wizard. Prompts for backend choice and backend-specific settin
 Options:
   --vault TEXT  Path to Obsidian vault directory (required)
 ```
+
+### `spec-agent init-repo`
+
+```
+Options:
+  --deep    Full breadth-first scan (reads up to 40 files) [default: shallow]
+  --force   Update existing KB without prompting
+```
+
+Run from inside a git repository. Writes KB docs to `projects/<repo-name>/` in the vault.
+
+### `spec-agent opt-out`
+
+No options. Auto-detects repo name from `git rev-parse`. Adds the current repo to `ignored_repos` in config — the global hook will skip it on future pushes.
+
+### `spec-agent opt-in`
+
+No options. Removes the current repo from `ignored_repos`, re-enabling spec generation on push.
 
 ### `spec-agent install-hook`
 
@@ -360,9 +386,42 @@ spec-agent run \
 
 ---
 
+## Bootstrap an existing repo
+
+If you install spec-agent on a repo that already has history, the vault starts empty and the push agent has no context. Fix this with `init-repo`:
+
+```bash
+cd ~/my-project
+spec-agent init-repo           # shallow scan — reads README, configs, entry points
+spec-agent init-repo --deep    # breadth-first scan of up to 40 files
+```
+
+This writes a `projects/<repo-name>/overview.md` and individual component docs into the vault. Future pushes immediately find relevant KB pages via `search_wiki`.
+
+To refresh the KB after significant changes:
+
+```bash
+spec-agent init-repo --force   # re-runs and updates existing docs; only sends changed files to LLM
+```
+
+---
+
 ## Per-repo opt-out
 
-To exclude a specific repo from spec generation, add its name to `ignored_repos` via `spec-agent configure` or directly in `~/.spec-agent/config.yaml`:
+To stop spec-agent from firing on a specific repo (useful for personal/dotfiles repos):
+
+```bash
+cd ~/my-private-repo
+spec-agent opt-out    # auto-detects repo name, adds to ignored_repos
+```
+
+To re-enable:
+
+```bash
+spec-agent opt-in
+```
+
+Or manage `ignored_repos` directly in `~/.spec-agent/config.yaml`:
 
 ```yaml
 ignored_repos:
