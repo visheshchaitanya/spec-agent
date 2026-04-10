@@ -40,7 +40,10 @@ def list_directory(
     max_depth: int = 3,
 ) -> dict:
     """Return a directory tree string, skipping generated/vendor paths."""
-    root = Path(repo_path) / relative_path
+    repo_resolved = Path(repo_path).resolve()
+    root = (Path(repo_path) / relative_path).resolve()
+    if root != repo_resolved and not str(root).startswith(str(repo_resolved) + "/"):
+        return {"error": "Path traversal rejected"}
     if not root.exists():
         return {"error": f"Path does not exist: {relative_path}"}
 
@@ -94,7 +97,10 @@ def read_source_file(
     max_chars: int = 8_000,
 ) -> dict:
     """Read a source file from the repo with a character cap."""
-    path = Path(repo_path) / relative_path
+    repo_resolved = Path(repo_path).resolve()
+    path = (Path(repo_path) / relative_path).resolve()
+    if not str(path).startswith(str(repo_resolved) + "/"):
+        return {"error": "Path traversal rejected"}
     if not path.exists():
         return {"error": f"File not found: {relative_path}"}
     if not path.is_file():

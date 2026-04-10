@@ -68,6 +68,11 @@ class TestListDirectory:
         assert "app.log" not in result["tree"]
         assert "build" not in result["tree"]
 
+    def test_path_traversal_rejected(self, repo: Path) -> None:
+        result = list_directory(str(repo), relative_path="../../../etc")
+        assert "error" in result
+        assert "traversal" in result["error"].lower()
+
 
 class TestReadSourceFile:
     def test_reads_file_content(self, repo: Path) -> None:
@@ -95,3 +100,8 @@ class TestReadSourceFile:
     def test_reads_nested_file(self, repo: Path) -> None:
         result = read_source_file(str(repo), "src/main.py")
         assert "def main" in result["content"]
+
+    def test_path_traversal_rejected(self, repo: Path) -> None:
+        result = read_source_file(str(repo), "../../../etc/passwd")
+        assert "error" in result
+        assert "traversal" in result["error"].lower()
