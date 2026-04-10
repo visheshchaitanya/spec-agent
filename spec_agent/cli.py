@@ -9,6 +9,8 @@ from rich.console import Console
 
 from spec_agent.agent import run_agent
 from spec_agent.config import Config, DEFAULT_CONFIG_PATH, load_config, save_config
+from spec_agent.init_agent import run_init_agent
+from spec_agent.tools.init_cache import get_changed_files, save_cache
 
 console = Console()
 
@@ -308,4 +310,54 @@ def opt_in(config: str) -> None:
     console.print(
         f"[green]✓[/green] [bold]{repo_name}[/bold] removed from ignored repos — "
         f"spec-agent is now active"
+    )
+
+
+@cli.command("init-repo")
+@click.option("--deep", is_flag=True, default=False, help="Full breadth-first scan (reads up to 40 files)")
+@click.option("--force", is_flag=True, default=False, help="Update existing KB without prompting")
+@click.option("--config", default=str(DEFAULT_CONFIG_PATH), help="Path to config.yaml")
+def init_repo(deep: bool, force: bool, config: str) -> None:
+    """Bootstrap a knowledge base for the current repo in the Obsidian vault."""
+    try:
+        repo_root = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"], stderr=subprocess.DEVNULL
+        ).decode().strip()
+        repo_name = Path(repo_root).name
+    except subprocess.CalledProcessError:
+        console.print("[red]✗[/red] Not a git repository. Run this command from inside a repo.")
+        raise SystemExit(1)
+
+    cfg = load_config(Path(config))
+    if not cfg.vault_path.exists():
+        console.print(
+            f"[yellow]spec-agent: vault not found at {cfg.vault_path}. Run: spec-agent init[/yellow]"
+        )
+        raise SystemExit(1)
+
+    kb_path = cfg.vault_path / "projects" / repo_name
+    if kb_path.exists() and not force:
+        console.print(
+            f"[yellow]⚠[/yellow]  KB already exists for [bold]{repo_name}[/bold]. "
+            f"Run with [bold]--force[/bold] to update."
+        )
+        return
+
+    changed_files = get_changed_files(repo_root, repo_name) if force else None
+
+    mode = "[deep]" if deep else "[shallow]"
+    console.print(f"[cyan]spec-agent init-repo:[/cyan] scanning {repo_name} {mode}...")
+
+    run_init_agent(
+        repo_path=repo_root,
+        repo_name=repo_name,
+        cfg=cfg,
+        deep=deep,
+        changed_files=changed_files,
+    )
+
+    save_cache(repo_name, repo_root)
+    console.print(f"[green]✓[/green] KB written to {kb_path}")
+    console.print(
+        f"[green]✓[/green] Cache saved — future [bold]--force[/bold] runs will focus on changed files"
     )

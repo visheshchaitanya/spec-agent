@@ -347,3 +347,83 @@ class TestOptIn:
             result = runner.invoke(cli, ["opt-in", "--config", str(cfg)])
         assert result.exit_code != 0
         assert "Not a git repository" in result.output
+
+
+# ---------------------------------------------------------------------------
+# spec-agent init-repo
+# ---------------------------------------------------------------------------
+
+class TestInitRepo:
+    def _setup(self, home: Path, vault_dir: Path) -> Path:
+        """Write a minimal config pointing at vault_dir."""
+        cfg_file = home / "config.yaml"
+        cfg_file.write_text(f"vault_path: {vault_dir}\n")
+        return cfg_file
+
+    def test_errors_when_not_in_git_repo(
+        self, runner: CliRunner, home: Path, vault_dir: Path
+    ) -> None:
+        cfg = self._setup(home, vault_dir)
+        with patch("subprocess.check_output", side_effect=subprocess.CalledProcessError(1, "git")):
+            result = runner.invoke(cli, ["init-repo", "--config", str(cfg)])
+        assert result.exit_code != 0
+        assert "Not a git repository" in result.output
+
+    def test_warns_when_kb_exists_without_force(
+        self, runner: CliRunner, home: Path, vault_dir: Path
+    ) -> None:
+        cfg = self._setup(home, vault_dir)
+        (vault_dir / "projects" / "my-service").mkdir(parents=True)
+        with patch("subprocess.check_output", return_value=b"/code/my-service"):
+            result = runner.invoke(cli, ["init-repo", "--config", str(cfg)])
+        assert result.exit_code == 0
+        assert "--force" in result.output
+
+    def test_warns_when_vault_missing(
+        self, runner: CliRunner, home: Path
+    ) -> None:
+        cfg = home / "config.yaml"
+        cfg.write_text(f"vault_path: {home}/nonexistent-vault\n")
+        with patch("subprocess.check_output", return_value=b"/code/my-service"):
+            result = runner.invoke(cli, ["init-repo", "--config", str(cfg)])
+        assert result.exit_code != 0
+        assert "vault not found" in result.output
+
+    def test_calls_run_init_agent(
+        self, runner: CliRunner, home: Path, vault_dir: Path
+    ) -> None:
+        cfg = self._setup(home, vault_dir)
+        with patch("subprocess.check_output", return_value=b"/code/my-service"), \
+             patch("spec_agent.cli.run_init_agent") as mock_agent, \
+             patch("spec_agent.cli.save_cache"):
+            result = runner.invoke(cli, ["init-repo", "--config", str(cfg)])
+        assert result.exit_code == 0, result.output
+        mock_agent.assert_called_once()
+        call_kwargs = mock_agent.call_args.kwargs
+        assert call_kwargs["repo_name"] == "my-service"
+        assert call_kwargs["deep"] is False
+
+    def test_deep_flag_passed_to_agent(
+        self, runner: CliRunner, home: Path, vault_dir: Path
+    ) -> None:
+        cfg = self._setup(home, vault_dir)
+        with patch("subprocess.check_output", return_value=b"/code/my-service"), \
+             patch("spec_agent.cli.run_init_agent") as mock_agent, \
+             patch("spec_agent.cli.save_cache"):
+            runner.invoke(cli, ["init-repo", "--deep", "--config", str(cfg)])
+        call_kwargs = mock_agent.call_args.kwargs
+        assert call_kwargs["deep"] is True
+
+    def test_force_flag_checks_changed_files(
+        self, runner: CliRunner, home: Path, vault_dir: Path
+    ) -> None:
+        cfg = self._setup(home, vault_dir)
+        (vault_dir / "projects" / "my-service").mkdir(parents=True)
+        with patch("subprocess.check_output", return_value=b"/code/my-service"), \
+             patch("spec_agent.cli.run_init_agent") as mock_agent, \
+             patch("spec_agent.cli.get_changed_files", return_value=["src/app.py"]) as mock_changed, \
+             patch("spec_agent.cli.save_cache"):
+            runner.invoke(cli, ["init-repo", "--force", "--config", str(cfg)])
+        mock_changed.assert_called_once()
+        call_kwargs = mock_agent.call_args.kwargs
+        assert call_kwargs["changed_files"] == ["src/app.py"]
