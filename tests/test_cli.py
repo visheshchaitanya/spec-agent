@@ -1,5 +1,6 @@
 """Tests for CLI commands."""
 from __future__ import annotations
+import subprocess
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -248,3 +249,101 @@ class TestHooks:
         result = runner.invoke(cli, ["uninstall-hook"], env={"HOME": str(home)})
         assert result.exit_code == 0
         assert "nothing to remove" in result.output
+
+
+# ---------------------------------------------------------------------------
+# spec-agent opt-out / opt-in
+# ---------------------------------------------------------------------------
+
+class TestOptOut:
+    def _cfg_with_vault(self, home: Path) -> Path:
+        cfg = home / "config.yaml"
+        cfg.write_text(f"vault_path: {home}/vault\nignored_repos: []\n")
+        return cfg
+
+    def test_adds_repo_to_ignored_list(
+        self, runner: CliRunner, home: Path
+    ) -> None:
+        cfg = self._cfg_with_vault(home)
+        with patch("subprocess.check_output", return_value=b"/code/my-service"):
+            result = runner.invoke(cli, ["opt-out", "--config", str(cfg)])
+        assert result.exit_code == 0
+        data = yaml.safe_load(cfg.read_text())
+        assert "my-service" in data["ignored_repos"]
+
+    def test_output_confirms_opt_out(
+        self, runner: CliRunner, home: Path
+    ) -> None:
+        cfg = self._cfg_with_vault(home)
+        with patch("subprocess.check_output", return_value=b"/code/my-service"):
+            result = runner.invoke(cli, ["opt-out", "--config", str(cfg)])
+        assert "my-service" in result.output
+        assert "ignored" in result.output
+
+    def test_no_op_when_already_ignored(
+        self, runner: CliRunner, home: Path
+    ) -> None:
+        cfg = home / "config.yaml"
+        cfg.write_text(f"vault_path: {home}/vault\nignored_repos:\n  - my-service\n")
+        with patch("subprocess.check_output", return_value=b"/code/my-service"):
+            result = runner.invoke(cli, ["opt-out", "--config", str(cfg)])
+        assert result.exit_code == 0
+        data = yaml.safe_load(cfg.read_text())
+        assert data["ignored_repos"].count("my-service") == 1  # not duplicated
+
+    def test_errors_when_not_in_git_repo(
+        self, runner: CliRunner, home: Path
+    ) -> None:
+        cfg = self._cfg_with_vault(home)
+        with patch("subprocess.check_output", side_effect=subprocess.CalledProcessError(1, "git")):
+            result = runner.invoke(cli, ["opt-out", "--config", str(cfg)])
+        assert result.exit_code != 0
+        assert "Not a git repository" in result.output
+
+
+class TestOptIn:
+    def _cfg_with_ignored(self, home: Path) -> Path:
+        cfg = home / "config.yaml"
+        cfg.write_text(
+            f"vault_path: {home}/vault\nignored_repos:\n  - my-service\n  - other-repo\n"
+        )
+        return cfg
+
+    def test_removes_repo_from_ignored_list(
+        self, runner: CliRunner, home: Path
+    ) -> None:
+        cfg = self._cfg_with_ignored(home)
+        with patch("subprocess.check_output", return_value=b"/code/my-service"):
+            result = runner.invoke(cli, ["opt-in", "--config", str(cfg)])
+        assert result.exit_code == 0
+        data = yaml.safe_load(cfg.read_text())
+        assert "my-service" not in data["ignored_repos"]
+        assert "other-repo" in data["ignored_repos"]  # other repo unaffected
+
+    def test_output_confirms_opt_in(
+        self, runner: CliRunner, home: Path
+    ) -> None:
+        cfg = self._cfg_with_ignored(home)
+        with patch("subprocess.check_output", return_value=b"/code/my-service"):
+            result = runner.invoke(cli, ["opt-in", "--config", str(cfg)])
+        assert "my-service" in result.output
+
+    def test_no_op_when_not_ignored(
+        self, runner: CliRunner, home: Path
+    ) -> None:
+        cfg = home / "config.yaml"
+        cfg.write_text(f"vault_path: {home}/vault\nignored_repos: []\n")
+        with patch("subprocess.check_output", return_value=b"/code/my-service"):
+            result = runner.invoke(cli, ["opt-in", "--config", str(cfg)])
+        assert result.exit_code == 0
+        assert "not currently ignored" in result.output
+
+    def test_errors_when_not_in_git_repo(
+        self, runner: CliRunner, home: Path
+    ) -> None:
+        cfg = home / "config.yaml"
+        cfg.write_text(f"vault_path: {home}/vault\nignored_repos: []\n")
+        with patch("subprocess.check_output", side_effect=subprocess.CalledProcessError(1, "git")):
+            result = runner.invoke(cli, ["opt-in", "--config", str(cfg)])
+        assert result.exit_code != 0
+        assert "Not a git repository" in result.output

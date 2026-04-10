@@ -62,6 +62,17 @@ exit 0
 """
 
 
+def _detect_repo_name() -> str:
+    """Auto-detect repo name from the current directory via git."""
+    try:
+        repo_root = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"], stderr=subprocess.DEVNULL
+        ).decode().strip()
+        return Path(repo_root).name
+    except subprocess.CalledProcessError:
+        return ""
+
+
 @click.group()
 def cli():
     """spec-agent: Auto-generate wiki specs from git commits."""
@@ -251,4 +262,50 @@ def configure(config):
     console.print(
         f"\n[bold]Done.[/bold] Config lives at [dim]{config_path}[/dim] — "
         "run [bold]spec-agent configure[/bold] again to change it."
+    )
+
+
+@cli.command("opt-out")
+@click.option("--config", default=str(DEFAULT_CONFIG_PATH), help="Path to config.yaml")
+def opt_out(config: str) -> None:
+    """Exclude the current repo from spec-agent's global hook."""
+    repo_name = _detect_repo_name()
+    if not repo_name:
+        console.print("[red]✗[/red] Not a git repository. Run this command from inside a repo.")
+        raise SystemExit(1)
+
+    config_path = Path(config)
+    cfg = load_config(config_path)
+    if repo_name in cfg.ignored_repos:
+        console.print(f"[dim]{repo_name} is already ignored.[/dim]")
+        return
+
+    cfg.ignored_repos.append(repo_name)
+    save_config(cfg, config_path)
+    console.print(
+        f"[green]✓[/green] [bold]{repo_name}[/bold] added to ignored repos — "
+        f"spec-agent will skip future pushes"
+    )
+
+
+@cli.command("opt-in")
+@click.option("--config", default=str(DEFAULT_CONFIG_PATH), help="Path to config.yaml")
+def opt_in(config: str) -> None:
+    """Re-include the current repo in spec-agent's global hook."""
+    repo_name = _detect_repo_name()
+    if not repo_name:
+        console.print("[red]✗[/red] Not a git repository. Run this command from inside a repo.")
+        raise SystemExit(1)
+
+    config_path = Path(config)
+    cfg = load_config(config_path)
+    if repo_name not in cfg.ignored_repos:
+        console.print(f"[dim]{repo_name} is not currently ignored.[/dim]")
+        return
+
+    cfg.ignored_repos = [r for r in cfg.ignored_repos if r != repo_name]
+    save_config(cfg, config_path)
+    console.print(
+        f"[green]✓[/green] [bold]{repo_name}[/bold] removed from ignored repos — "
+        f"spec-agent is now active"
     )
