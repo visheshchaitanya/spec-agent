@@ -160,3 +160,53 @@ def test_agent_dispatches_unknown_tool_gracefully(cfg, vault_dir):
         )
 
     assert call_count == 2
+
+
+def test_run_agent_injects_changed_symbols(cfg, vault_dir, mocker):
+    """Mock extract_diff_symbols; 'Changed symbols' appears in user message."""
+    mocker.patch(
+        "spec_agent.agent._extract_diff_symbols",
+        return_value={"agent.py": {"modified_functions": ["run_agent"], "modified_classes": []}},
+    )
+    mocker.patch("spec_agent.agent._DIFF_AST_AVAILABLE", True)
+
+    messages_seen = []
+
+    def fake_make_user_message(content):
+        messages_seen.append(content)
+        return {"role": "user", "content": content}
+
+    mock_backend = MagicMock()
+    mock_backend.chat.return_value = _make_end_turn_response()
+    mock_backend.make_user_message.side_effect = fake_make_user_message
+
+    with patch("spec_agent.agent.get_backend", return_value=mock_backend):
+        run_agent(diff="diff content", commit_messages=["feat: thing"], repo_name="my-app", branch="main", cfg=cfg)
+
+    assert messages_seen
+    assert "Changed symbols" in messages_seen[0]
+
+
+def test_run_agent_symbols_extraction_failure_does_not_raise(cfg, vault_dir, mocker):
+    """If extract_diff_symbols raises, run_agent still completes and diff appears."""
+    mocker.patch(
+        "spec_agent.agent._extract_diff_symbols",
+        side_effect=RuntimeError("parse error"),
+    )
+    mocker.patch("spec_agent.agent._DIFF_AST_AVAILABLE", True)
+
+    messages_seen = []
+
+    def fake_make_user_message(content):
+        messages_seen.append(content)
+        return {"role": "user", "content": content}
+
+    mock_backend = MagicMock()
+    mock_backend.chat.return_value = _make_end_turn_response()
+    mock_backend.make_user_message.side_effect = fake_make_user_message
+
+    with patch("spec_agent.agent.get_backend", return_value=mock_backend):
+        run_agent(diff="diff content", commit_messages=["feat: thing"], repo_name="my-app", branch="main", cfg=cfg)
+
+    assert messages_seen
+    assert "diff content" in messages_seen[0]
