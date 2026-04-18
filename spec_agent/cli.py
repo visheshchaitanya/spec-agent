@@ -46,7 +46,7 @@ COMMITS=$(git log "${REMOTE_SHA}..${LOCAL_SHA}" --format="%s" 2>/dev/null)
 
 # Write diff to a temp file to safely handle special characters
 DIFF_FILE=$(mktemp /tmp/spec-agent-diff.XXXXXX)
-git diff "${REMOTE_SHA}..${LOCAL_SHA}" 2>/dev/null | head -c 50000 > "$DIFF_FILE"
+git diff "${REMOTE_SHA}..${LOCAL_SHA}" 2>/dev/null | head -c 50000 > "$DIFF_FILE" || true
 
 # Skip if no actual file changes
 if [ ! -s "$DIFF_FILE" ]; then
@@ -148,7 +148,9 @@ def init(vault, config):
 
     console.print(f"[green]✓[/green] Vault created at {vault_path}")
     console.print(f"[green]✓[/green] Config saved to {config_path}")
-    console.print("\nNext step: [bold]spec-agent install-hook[/bold]")
+    console.print("\nNext steps:")
+    console.print("  1. [bold]spec-agent configure[/bold]   — choose your LLM backend (Anthropic, Ollama, or Gemini)")
+    console.print("  2. [bold]spec-agent install-hook[/bold] — install the global git hook")
 
 
 @cli.command("install-hook")
@@ -252,12 +254,20 @@ def configure(config):
         console.print("\n[bold]Available Gemini models:[/bold]")
         console.print("  gemini-2.0-flash   — fast, free tier, recommended")
         console.print("  gemini-2.5-pro     — best quality, paid")
-        console.print("  gemma-3-27b-it     — open Gemma 3 model via Google API\n")
+        console.print("[dim]  Note: Gemma models (e.g. gemma-3-27b-it) do not support function calling and cannot be used with spec-agent.[/dim]\n")
         model = click.prompt("Model", default=cfg.gemini_model)
         cfg.llm_backend = "gemini"
         cfg.gemini_model = model
         save_config(cfg, config_path)
         console.print(f"\n[green]✓[/green] Config saved → backend: gemini, model: {model}")
+        try:
+            from google import genai as _genai  # noqa: F401
+        except ImportError:
+            console.print(
+                "\n[yellow]⚠[/yellow]  The [bold]google-genai[/bold] package is not installed. "
+                "Install it before running spec-agent:\n"
+                "  [bold]pip install google-genai[/bold]"
+            )
         console.print("\n[bold]Set your API key — get one free at https://aistudio.google.com:[/bold]")
         console.print('[dim]  export GEMINI_API_KEY="AIza..."[/dim]')
         console.print('[dim]  echo \'export GEMINI_API_KEY="AIza..."\' >> ~/.zshrc[/dim]')

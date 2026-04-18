@@ -16,6 +16,9 @@ except ImportError as exc:
 from spec_agent.backends.base import ChatResponse, LLMBackend, ToolCall
 
 
+_MODELS_WITHOUT_FUNCTION_CALLING = ("gemma",)
+
+
 class GeminiBackend(LLMBackend):
     """LLM backend that calls the Google Gemini API via the google-genai SDK."""
 
@@ -28,6 +31,15 @@ class GeminiBackend(LLMBackend):
         if not resolved_key:
             raise ValueError(
                 "A Gemini API key is required. Pass api_key= or set GEMINI_API_KEY."
+            )
+        model_id = model.split("/")[-1]  # strip "models/" prefix if present
+        if any(model_id.startswith(prefix) for prefix in _MODELS_WITHOUT_FUNCTION_CALLING):
+            raise ValueError(
+                f"Model '{model}' does not support function calling, which spec-agent requires.\n"
+                "Please choose a Gemini model that supports function calling, e.g.:\n"
+                "  gemini-2.0-flash   — fast, free tier\n"
+                "  gemini-2.5-pro     — best quality\n"
+                "Run 'spec-agent configure' to update your model."
             )
         self.model = model
         self._client = genai.Client(api_key=resolved_key)
