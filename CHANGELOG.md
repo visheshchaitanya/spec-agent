@@ -7,15 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-04-18
+
 ### Added
-- AST pre-processing via tree-sitter (optional `[ast]` extra): `spec_agent/ast_extractor.py` extracts classes, functions, and imports from Python, Go, JavaScript, TypeScript, TSX, Rust, and Java source files without LLM calls
-- `init-repo` now injects a `<repo-structure>` block of pre-extracted AST data into the user message when tree-sitter is installed, reducing API calls from 15–30 down to 2–4 per run
-- AST-aware system prompts for both shallow and deep init modes tell the LLM to use the structure block directly and skip file-reading tools
+- AST pre-processing via tree-sitter: `spec_agent/ast_extractor.py` extracts classes, functions, and imports from Python, Go, JavaScript, TypeScript, TSX, Rust, and Java source files without LLM calls
+- `init-repo` now injects a `<repo-structure>` block of pre-extracted AST data into the user message, reducing API calls from 15–30 down to 2–4 per run
+- AST-aware system prompts for both shallow and deep init modes
 - `init-repo` iteration cap is now dynamic: 15 when AST data is available, 30 when falling back to LLM-reads-files mode
-- `git push` agent enriches the diff user message with changed symbols (classes and functions) extracted via regex from `@@` hunk headers, giving the LLM richer context about what code changed
+- `git push` agent enriches the diff user message with changed symbols (classes and functions) extracted via regex from `@@` hunk headers
 
 ### Changed
-- tree-sitter and language grammar packages are optional extras (`pip install spec-agent[ast]`); all existing functionality is unchanged if not installed
+- tree-sitter and all language grammar packages are now bundled in the base install (`pip install spec-agent`) — AST extraction is a first-class feature used by `init-repo`
+
+### Fixed
+- `tree-sitter-tsx` does not exist on PyPI — removed from dependencies; TSX grammar is bundled inside `tree-sitter-typescript`
+- `.ts` and `.tsx` files would silently fail to parse at runtime: `tree_sitter_typescript` exposes `language_typescript()` / `language_tsx()`, not a generic `language()` — fixed `_get_parser()` to call the correct function
 
 ## [0.4.0] — 2026-04-18
 
