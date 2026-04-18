@@ -2,7 +2,6 @@
 from __future__ import annotations
 import json
 import logging
-from typing import Optional
 
 from spec_agent.config import Config
 from spec_agent.backends.factory import get_backend
@@ -256,9 +255,11 @@ _SHALLOW_SYSTEM_PROMPT_AST = _SHALLOW_SYSTEM_PROMPT.replace(
     "- Based on the structure block, identify the 3-6 most architecturally significant components.",
 )
 
-assert "pre-extracted" in _SHALLOW_SYSTEM_PROMPT_AST, (
-    "AST replacement failed for _SHALLOW_SYSTEM_PROMPT_AST — check that the Step 1 text matches exactly."
-)
+if "pre-extracted" not in _SHALLOW_SYSTEM_PROMPT_AST:
+    raise RuntimeError(
+        "AST replacement failed for _SHALLOW_SYSTEM_PROMPT_AST — "
+        "check that Step 1 text matches exactly"
+    )
 
 _DEEP_SYSTEM_PROMPT_AST = _DEEP_SYSTEM_PROMPT.replace(
     "**Step 1 — Deep-dive the repo (--deep mode):**\n"
@@ -279,9 +280,11 @@ _DEEP_SYSTEM_PROMPT_AST = _DEEP_SYSTEM_PROMPT.replace(
     "- Based on the structure block, identify ALL architecturally significant components.",
 )
 
-assert "pre-extracted" in _DEEP_SYSTEM_PROMPT_AST, (
-    "AST replacement failed for _DEEP_SYSTEM_PROMPT_AST — check that the Step 1 text matches exactly."
-)
+if "pre-extracted" not in _DEEP_SYSTEM_PROMPT_AST:
+    raise RuntimeError(
+        "AST replacement failed for _DEEP_SYSTEM_PROMPT_AST — "
+        "check that Step 1 text matches exactly"
+    )
 
 
 def _dispatch_tool(
@@ -316,7 +319,7 @@ def run_init_agent(
     repo_name: str,
     cfg: Config,
     deep: bool = False,
-    changed_files: Optional[list[str]] = None,
+    changed_files: list[str] | None = None,
 ) -> None:
     """Run the KB initialisation agent for a repository."""
     vault_path = str(cfg.vault_path)
@@ -350,7 +353,10 @@ def run_init_agent(
                     "Those tools remain available if you need specific implementation details."
                 )
         except Exception:
-            logger.warning("spec-agent init: AST extraction failed, falling back to LLM-reads-files")
+            logger.warning(
+                "spec-agent init: AST extraction failed, falling back to LLM-reads-files",
+                exc_info=True,
+            )
 
     user_message = (
         f"Build a knowledge base for this repository.\n\n"

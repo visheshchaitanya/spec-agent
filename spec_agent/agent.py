@@ -1,7 +1,6 @@
 from __future__ import annotations
 import json
 import logging
-from typing import Optional
 from spec_agent.config import Config
 from spec_agent.backends.factory import get_backend
 from spec_agent.tools.wiki_read import read_wiki_file
@@ -219,7 +218,7 @@ def run_agent(
     repo_name: str,
     branch: str,
     cfg: Config,
-    _force_type: Optional[str] = None,  # test hook
+    _force_type: str | None = None,  # test hook
 ) -> None:
     """Run the tool-using agent loop using the configured LLM backend."""
     # Test hook: skip API calls for known chore commits
@@ -231,15 +230,19 @@ def run_agent(
 
     # Extract changed symbols from diff for additional context
     symbols_note = ""
+    _DIFF_SYMBOL_CAP = 500_000  # 500 KB — generous for symbol extraction
     if _DIFF_AST_AVAILABLE:
         try:
-            changed_symbols = _extract_diff_symbols(diff)
+            changed_symbols = _extract_diff_symbols(diff[:_DIFF_SYMBOL_CAP])
             if changed_symbols:
                 symbols_note = "\n\nChanged symbols (AST-extracted):\n" + json.dumps(
                     changed_symbols, indent=2
                 )
         except Exception:
-            logger.warning("spec-agent: AST diff symbol extraction failed, skipping enrichment")
+            logger.warning(
+                "spec-agent: AST diff symbol extraction failed, skipping enrichment",
+                exc_info=True,
+            )
 
     user_message = (
         "Classify this push as one of: feature | bug | refactor | arch | chore.\n"

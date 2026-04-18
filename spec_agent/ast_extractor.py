@@ -27,7 +27,7 @@ _MAX_OUTPUT_CHARS = 60_000  # cap on total serialized JSON chars (~15k tokens)
 
 
 @lru_cache(maxsize=None)
-def _get_parser(ext: str):
+def _get_parser(ext: str) -> Any:
     """Return a tree_sitter.Parser for the given extension. Cached."""
     import tree_sitter
     module_name = LANG_MAP[ext]
@@ -172,6 +172,12 @@ def _walk_repo(repo_path: str) -> list[str]:
     for p in root.rglob("*"):
         if not p.is_file():
             continue
+        # Skip symlinks that resolve outside the repo root
+        if p.is_symlink():
+            try:
+                p.resolve().relative_to(root.resolve())
+            except ValueError:
+                continue
         # Skip hidden segments and skip dirs
         parts = p.relative_to(root).parts
         skip = False
@@ -213,18 +219,25 @@ def extract_repo_structure(
 
     repo_root = Path(repo_path)
 
+    extracted: list[dict] = []
+    skipped: list[str] = []
+
     if files is not None:
         abs_files: list[str] = []
         for f in files:
             p = Path(f)
             if not p.is_absolute():
                 p = repo_root / p
+            # Reject paths that escape the repo root
+            try:
+                p.resolve().relative_to(repo_root.resolve())
+            except ValueError:
+                logger.warning("ast_extractor: skipping out-of-root path: %s", f)
+                skipped.append(str(f))
+                continue
             abs_files.append(str(p))
     else:
         abs_files = _walk_repo(repo_path)
-
-    extracted: list[dict] = []
-    skipped: list[str] = []
 
     for abs_path_str in abs_files:
         if len(extracted) >= _MAX_TOTAL_FILES:
@@ -372,7 +385,7 @@ def extract_diff_symbols(diff: str) -> dict[str, dict]:
         # Extract from changed lines (lines starting with + or -)
         for line in lines:
             if line.startswith("+") or line.startswith("-"):
-                changed = line[1:]  # strip the leading + or -
+                changed = line[1:501]  # cap at 500 chars to prevent ReDoS
                 cls, fns = _parse_symbols_from_text(changed)
                 classes.update(cls)
                 functions.update(fns)
