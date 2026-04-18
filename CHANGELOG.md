@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-04-18
+
 ### Added
-- GitHub Models LLM backend (`llm_backend: github`) — OpenAI-compatible endpoint via `GITHUB_TOKEN`, free tier (150 req/day), default model `gpt-4o-mini`
+- GitHub Models LLM backend (`llm_backend: github`) — OpenAI-compatible endpoint (`https://models.inference.ai.azure.com`) via `GITHUB_TOKEN`, free tier (150 req/day), default model `gpt-4o-mini`; no new dependencies (`requests` already required)
+
+### Fixed
+- `GeminiBackend` now raises a clear `ValueError` at construction time when a Gemma model is selected (Gemma does not support function calling, which spec-agent requires)
+- Pre-push hook script: added `|| true` to the `git diff | head -c` pipe so the hook no longer exits with an error on empty diffs
+- `spec-agent init` "Next steps" hint now shows both `configure` and `install-hook` steps in order
+- `spec-agent configure` Gemini menu: removed Gemma from suggested models and added a check for missing `google-genai` package with install instructions
 
 ## [0.3.0] — 2026-04-10
 
