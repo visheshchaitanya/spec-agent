@@ -1,6 +1,6 @@
 # spec-agent
 
-> Auto-generate an Obsidian knowledge wiki from every `git push` — powered by Claude, Ollama, or Gemini.
+> Auto-generate an Obsidian knowledge wiki from every `git push` — powered by Claude, Ollama, Gemini, or GitHub Models.
 
 Every time you push code, **spec-agent** reads the diff, classifies the change, and writes a structured spec document into your [Obsidian](https://obsidian.md) vault. Over time, your vault becomes a living, visually-navigable graph of everything you've ever built.
 
@@ -35,7 +35,7 @@ The agent:
 
 - **Zero friction** — fires automatically on every `git push`, no developer action needed
 - **Cold-start KB bootstrap** — `spec-agent init-repo` scans an existing codebase and writes a structured knowledge base into the vault before any pushes have occurred
-- **Pluggable LLM backends** — use Anthropic (cloud), Ollama (local/free), or Gemini (free tier)
+- **Pluggable LLM backends** — use Anthropic (cloud), Ollama (local/free), Gemini (free tier), or GitHub Models (free tier, 150 req/day, `GITHUB_TOKEN`, no new dependencies)
 - **Adaptive templates** — selects the right format based on commit type
   - `feature` → full spec (summary, problem, implementation, files, open questions)
   - `bug` → short report (root cause, fix applied)
@@ -58,6 +58,7 @@ The agent:
   - **Anthropic** — [API key](https://console.anthropic.com) required
   - **Ollama** — free, runs locally; [download here](https://ollama.com/download)
   - **Gemini** — free tier available; [API key](https://aistudio.google.com) required
+  - **GitHub Models** — free tier (150 req/day); `GITHUB_TOKEN` required; no extra dependencies
 
 ---
 
@@ -113,6 +114,7 @@ Choose an LLM backend:
   anthropic  Cloud — best quality, requires ANTHROPIC_API_KEY
   ollama     Local — free, runs on your machine (no API key)
   gemini     Cloud — free tier available, requires GEMINI_API_KEY
+  github     Cloud — free tier (150 req/day), requires GITHUB_TOKEN
 
 Backend [anthropic]: ollama
 
@@ -149,6 +151,12 @@ export GEMINI_API_KEY="AIza..."
 # Add to ~/.zshrc or ~/.bashrc to make permanent
 ```
 
+**GitHub Models** (free tier — [github.com/marketplace/models](https://github.com/marketplace/models)):
+```bash
+export GITHUB_TOKEN="ghp_..."
+# Add to ~/.zshrc or ~/.bashrc to make permanent
+```
+
 ### 3. Install the global git hook
 
 ```bash
@@ -181,6 +189,7 @@ git push
 | `anthropic` | ~$0.003–0.015 / push | Best | `ANTHROPIC_API_KEY` |
 | `ollama` | Free (local compute) | Good (model-dependent) | Install Ollama + pull model |
 | `gemini` | Free tier / ~$0.001 | Good | `GEMINI_API_KEY` |
+| `github` | Free tier (150 req/day) | Good | `GITHUB_TOKEN` |
 
 ### Running with Ollama (local, zero cost)
 
@@ -211,6 +220,18 @@ Ollama runs the model locally on your GPU/CPU — no data leaves your machine.
    spec-agent configure     # choose "gemini"
    ```
 
+### Running with GitHub Models (free tier, no extra dependencies)
+
+1. Generate a token at [github.com/settings/tokens](https://github.com/settings/tokens) (any token with Models access works, including a free personal access token)
+2. Configure:
+   ```bash
+   export GITHUB_TOKEN="ghp_..."
+   spec-agent configure     # choose "github"
+   ```
+   Default model: `gpt-4o-mini`. Rate limit: 150 requests/day on the free tier.
+
+No additional packages are required — the backend uses the same `httpx` transport already installed with spec-agent.
+
 ---
 
 ## Configuration
@@ -226,10 +247,11 @@ ignored_branches:
   - renovate/*
 min_commit_chars: 50
 # LLM backend
-llm_backend: anthropic        # anthropic | ollama | gemini
+llm_backend: anthropic        # anthropic | ollama | gemini | github
 ollama_url: http://localhost:11434
 ollama_model: qwen2.5:7b
 gemini_model: gemini-2.0-flash
+github_model: gpt-4o-mini
 ```
 
 | Key | Default | Description |
@@ -239,10 +261,11 @@ gemini_model: gemini-2.0-flash
 | `ignored_repos` | `[]` | Exact repo names to never process |
 | `ignored_branches` | `[dependabot/*, renovate/*]` | Glob patterns — matching branches are skipped |
 | `min_commit_chars` | `50` | Skip pushes where total commit message length is below this |
-| `llm_backend` | `anthropic` | Which backend to use: `anthropic`, `ollama`, or `gemini` |
+| `llm_backend` | `anthropic` | Which backend to use: `anthropic`, `ollama`, `gemini`, or `github` |
 | `ollama_url` | `http://localhost:11434` | Ollama server URL (change if running on a remote machine) |
 | `ollama_model` | `qwen2.5:7b` | Ollama model name (must be pulled first via `ollama pull`) |
 | `gemini_model` | `gemini-2.0-flash` | Gemini model name |
+| `github_model` | `gpt-4o-mini` | GitHub Models model name (requires `GITHUB_TOKEN`; free tier 150 req/day) |
 
 ---
 
@@ -467,7 +490,8 @@ The agent loop in `agent.py` is backend-agnostic. A backend is selected via `get
 LLMBackend
   ├── AnthropicBackend   uses anthropic SDK, native tool-use
   ├── OllamaBackend      HTTP POST to /api/chat, OpenAI-compatible tool format
-  └── GeminiBackend      uses google-genai SDK, function declarations
+  ├── GeminiBackend      uses google-genai SDK, function declarations
+  └── GitHubBackend      OpenAI-compatible endpoint (models.inference.ai.azure.com), GITHUB_TOKEN auth
 ```
 
 Each backend normalizes its response to a `ChatResponse(stop_reason, text, tool_calls)` so the agent loop is identical regardless of which LLM is running.
