@@ -265,8 +265,8 @@ def configure(config):
     elif backend == "github":
         console.print("\n[bold]Available GitHub Models (gpt family recommended for tool use):[/bold]")
         console.print("  gpt-4o-mini   — fast, free tier, recommended (default)")
-        console.print("  gpt-4o        — higher quality, still free tier")
-        console.print("  o1-mini       — reasoning model, free tier\n")
+        console.print("  gpt-4o        — higher quality, still free tier\n")
+        console.print("[dim]  Note: Only gpt-family models support tool calling. Reasoning models (o1, o3) do not and cannot be used with spec-agent.[/dim]\n")
         console.print(
             "[yellow]Rate limit:[/yellow] 150 requests/day on the free tier.\n"
             "  Each git push uses ~4-5 requests (feature/bug) or 1 (chore).\n"
