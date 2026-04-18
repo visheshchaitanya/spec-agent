@@ -22,8 +22,17 @@ class GitHubBackend(LLMBackend):
 
     BASE_URL = "https://models.inference.ai.azure.com"
 
+    # gpt-4o-mini on GitHub Models is capped at 8000 tokens total per request.
+    # System prompt (~600 tok) + tools (~800 tok) + messages overhead leaves
+    # ~4000 tokens (~16 000 chars) for the AST block.
+    _AST_BUDGET_CHARS = 16_000
+
     def __init__(self, model: str = "gpt-4o-mini") -> None:
         self.model = model
+
+    @property
+    def ast_budget_chars(self) -> int | None:
+        return self._AST_BUDGET_CHARS
 
     def chat(
         self,

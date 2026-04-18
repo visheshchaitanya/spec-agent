@@ -60,6 +60,15 @@ class LLMBackend(ABC):
         or multiple messages (OpenAI/Ollama sends one per tool result).
         """
 
+    @property
+    def ast_budget_chars(self) -> int | None:
+        """Max characters allowed for the AST block in the user message.
+
+        Returns None for unlimited (e.g. large-context backends like Anthropic).
+        Override in backends with strict token limits.
+        """
+        return None
+
     def convert_tools(self, tool_definitions: list[dict]) -> list[dict]:
         """Convert Anthropic-style tool definitions to this backend's format.
 
