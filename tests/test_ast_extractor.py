@@ -4,13 +4,14 @@ import json
 from pathlib import Path
 import pytest
 
-# Guard: skip all tree-sitter dependent tests if not installed
-tree_sitter = pytest.importorskip("tree_sitter", reason="tree-sitter not installed")
+# Note: only tests that actually call tree-sitter use importorskip per-test.
+# Tests for pure-Python paths (extract_diff_symbols, graceful fallback) run always.
 
 
 class TestExtractPython:
     def test_extract_python_classes_and_functions(self, tmp_path: Path) -> None:
         """Parse a Python snippet; assert class/method/function names extracted."""
+        pytest.importorskip("tree_sitter", reason="tree-sitter not installed")
         pytest.importorskip("tree_sitter_python", reason="tree-sitter-python not installed")
         from spec_agent.ast_extractor import _extract_file
         f = tmp_path / "sample.py"
@@ -31,6 +32,7 @@ class TestExtractPython:
 
     def test_extract_python_imports(self, tmp_path: Path) -> None:
         """Both import forms appear in imports list."""
+        pytest.importorskip("tree_sitter", reason="tree-sitter not installed")
         pytest.importorskip("tree_sitter_python", reason="tree-sitter-python not installed")
         from spec_agent.ast_extractor import _extract_file
         f = tmp_path / "sample.py"
@@ -43,14 +45,20 @@ class TestExtractPython:
 
 class TestExtractUnsupported:
     def test_extract_unsupported_extension(self, tmp_path: Path) -> None:
-        """extract_repo_structure on .rb file returns files=[] and skipped has the path."""
+        """extract_repo_structure on .rb file returns files=[].
+        When tree-sitter is installed, .rb appears in skipped.
+        When tree-sitter is absent, result has 'error' key (early return)."""
         from spec_agent.ast_extractor import extract_repo_structure
         rb = tmp_path / "script.rb"
         rb.write_text("puts 'hello'")
         result = extract_repo_structure(str(tmp_path))
         assert result["files"] == []
-        skipped_str = " ".join(result.get("skipped", []))
-        assert "script.rb" in skipped_str
+        if "error" in result:
+            # tree-sitter not installed — graceful fallback, no file walking
+            assert "tree-sitter" in result["error"]
+        else:
+            skipped_str = " ".join(result.get("skipped", []))
+            assert "script.rb" in skipped_str
 
     def test_extract_repo_structure_empty_dir(self, tmp_path: Path) -> None:
         """Empty directory returns files=[], skipped=[]."""
@@ -95,6 +103,22 @@ class TestExtractUnsupported:
         assert any("bad.py" in s for s in result["skipped"])
 
 
+class TestWalkRepo:
+    def test_walk_repo_returns_files(self, tmp_path: Path) -> None:
+        """_walk_repo returns files and skips hidden dirs and skip dirs."""
+        from spec_agent.ast_extractor import _walk_repo
+        (tmp_path / "main.py").write_text("x = 1")
+        (tmp_path / ".hidden.py").write_text("x = 1")
+        git_dir = tmp_path / ".git"
+        git_dir.mkdir()
+        (git_dir / "config").write_text("data")
+        results = _walk_repo(str(tmp_path))
+        rel_results = [Path(r).name for r in results]
+        assert "main.py" in rel_results
+        assert ".hidden.py" not in rel_results
+        assert "config" not in rel_results
+
+
 class TestExtractDiffSymbols:
     def test_extract_diff_symbols_basic(self) -> None:
         """A minimal diff touching a Python class method returns correct symbols."""
@@ -126,3 +150,35 @@ class TestExtractDiffSymbols:
         )
         result = extract_diff_symbols(diff)
         assert result == {}
+
+    def test_extract_diff_symbols_with_class_keyword(self) -> None:
+        """Diff with 'class' keyword in hunk header populates modified_classes."""
+        from spec_agent.ast_extractor import extract_diff_symbols
+        diff = (
+            "--- a/models.py\n"
+            "+++ b/models.py\n"
+            "@@ -5,3 +5,5 @@ class UserModel:\n"
+            "+    new_field = True\n"
+        )
+        result = extract_diff_symbols(diff)
+        assert "models.py" in result
+        assert "UserModel" in result["models.py"]["modified_classes"]
+
+    def test_extract_diff_symbols_multi_file(self) -> None:
+        """Diff with two files produces entries for both."""
+        from spec_agent.ast_extractor import extract_diff_symbols
+        diff = (
+            "--- a/agent.py\n"
+            "+++ b/agent.py\n"
+            "@@ -1,2 +1,3 @@ def run_agent():\n"
+            "+    x = 1\n"
+            "--- a/config.py\n"
+            "+++ b/config.py\n"
+            "@@ -10,2 +10,3 @@ def load_config():\n"
+            "+    y = 2\n"
+        )
+        result = extract_diff_symbols(diff)
+        assert "agent.py" in result
+        assert "config.py" in result
+        assert "run_agent" in result["agent.py"]["modified_functions"]
+        assert "load_config" in result["config.py"]["modified_functions"]
