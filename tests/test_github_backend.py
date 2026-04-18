@@ -155,9 +155,12 @@ class TestGitHubBackend:
         converted = backend.convert_tools(SAMPLE_TOOLS)
         assert len(converted) == 1
         assert converted[0]["type"] == "function"
-        assert "function" in converted[0]
+        fn = converted[0]["function"]
+        assert fn["name"] == "search_wiki"
+        assert fn["description"] == "Search the vault"
+        assert fn["parameters"] == SAMPLE_TOOLS[0]["input_schema"]
 
-    # 9. raw_assistant_turn has "role" and "content" keys
+    # 9. raw_assistant_turn has "role" and "content" keys with correct values
     def test_raw_assistant_turn_has_role_content_keys(self):
         backend = GitHubBackend()
         mock_resp = _mock_resp(content="hello")
@@ -165,8 +168,8 @@ class TestGitHubBackend:
         with patch("requests.post", return_value=mock_resp):
             result = backend.chat("sys", [], [])
 
-        assert "role" in result.raw_assistant_turn
-        assert "content" in result.raw_assistant_turn
+        assert result.raw_assistant_turn["role"] == "assistant"
+        assert result.raw_assistant_turn["content"] == "hello"
 
     # 10. raw_assistant_turn does NOT have "tool_calls" key when no tools called
     def test_raw_assistant_turn_no_tool_calls_key_on_text_response(self):
