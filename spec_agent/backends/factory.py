@@ -30,8 +30,11 @@ def get_backend(cfg: Config) -> LLMBackend:
         case "gemini":
             from spec_agent.backends.gemini_backend import GeminiBackend
             return GeminiBackend(model=cfg.gemini_model)
+        case "github":
+            from spec_agent.backends.github_backend import GitHubBackend
+            return GitHubBackend(model=cfg.github_model)
         case _:
             raise ValueError(
                 f"Unknown llm_backend: {cfg.llm_backend!r}. "
-                "Choose from: anthropic, ollama, gemini"
+                "Choose from: anthropic, ollama, gemini, github"
             )

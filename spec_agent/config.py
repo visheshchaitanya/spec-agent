@@ -15,10 +15,11 @@ class Config:
     ignored_branches: list[str] = field(default_factory=lambda: ["dependabot/*", "renovate/*"])
     min_commit_chars: int = 50
     # LLM backend selection
-    llm_backend: str = "anthropic"  # "anthropic" | "ollama" | "gemini"
+    llm_backend: str = "anthropic"  # "anthropic" | "ollama" | "gemini" | "github"
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:7b"
     gemini_model: str = "gemini-2.0-flash"
+    github_model: str = "gpt-4o-mini"
 
     def is_repo_ignored(self, repo_name: str) -> bool:
         return repo_name in self.ignored_repos
@@ -38,6 +39,7 @@ def _defaults() -> dict:
         "ollama_url": "http://localhost:11434",
         "ollama_model": "qwen2.5:7b",
         "gemini_model": "gemini-2.0-flash",
+        "github_model": "gpt-4o-mini",
     }
 
 
@@ -56,6 +58,7 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> Config:
         ollama_url=data.get("ollama_url", "http://localhost:11434"),
         ollama_model=data.get("ollama_model", "qwen2.5:7b"),
         gemini_model=data.get("gemini_model", "gemini-2.0-flash"),
+        github_model=data.get("github_model", "gpt-4o-mini"),
     )
 
 
@@ -72,4 +75,5 @@ def save_config(cfg: Config, config_path: Path = DEFAULT_CONFIG_PATH) -> None:
             "ollama_url": cfg.ollama_url,
             "ollama_model": cfg.ollama_model,
             "gemini_model": cfg.gemini_model,
+            "github_model": cfg.github_model,
         }, f, default_flow_style=False)

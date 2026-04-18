@@ -211,11 +211,12 @@ def configure(config):
     console.print("Choose an LLM backend:\n")
     console.print("  [bold]anthropic[/bold]  Cloud — best quality, requires [yellow]ANTHROPIC_API_KEY[/yellow]")
     console.print("  [bold]ollama[/bold]     Local — free, runs on your machine (no API key)")
-    console.print("  [bold]gemini[/bold]     Cloud — free tier available, requires [yellow]GEMINI_API_KEY[/yellow]\n")
+    console.print("  [bold]gemini[/bold]     Cloud — free tier available, requires [yellow]GEMINI_API_KEY[/yellow]")
+    console.print("  [bold]github[/bold]     Cloud — free tier (150 req/day), requires [yellow]GITHUB_TOKEN[/yellow]\n")
 
     backend = click.prompt(
         "Backend",
-        type=click.Choice(["anthropic", "ollama", "gemini"]),
+        type=click.Choice(["anthropic", "ollama", "gemini", "github"]),
         default=cfg.llm_backend,
     )
 
@@ -260,6 +261,27 @@ def configure(config):
         console.print("\n[bold]Set your API key — get one free at https://aistudio.google.com:[/bold]")
         console.print('[dim]  export GEMINI_API_KEY="AIza..."[/dim]')
         console.print('[dim]  echo \'export GEMINI_API_KEY="AIza..."\' >> ~/.zshrc[/dim]')
+
+    elif backend == "github":
+        console.print("\n[bold]Available GitHub Models (gpt family recommended for tool use):[/bold]")
+        console.print("  gpt-4o-mini   — fast, free tier, recommended (default)")
+        console.print("  gpt-4o        — higher quality, still free tier\n")
+        console.print("[dim]  Note: Only gpt-family models support tool calling. Reasoning models (o1, o3) do not and cannot be used with spec-agent.[/dim]\n")
+        console.print(
+            "[yellow]Rate limit:[/yellow] 150 requests/day on the free tier.\n"
+            "  Each git push uses ~4-5 requests (feature/bug) or 1 (chore).\n"
+            "  At 5 req/push this allows ~30 pushes/day before hitting the limit.\n"
+            "  [bold]init-repo --deep[/bold] uses ~30 requests — may exhaust the daily budget in one run.\n"
+        )
+        model = click.prompt("Model", default=cfg.github_model)
+        cfg.llm_backend = "github"
+        cfg.github_model = model
+        save_config(cfg, config_path)
+        console.print(f"\n[green]✓[/green] Config saved → backend: github, model: {model}")
+        console.print("\n[bold]Set GITHUB_TOKEN — generate at https://github.com/settings/tokens:[/bold]")
+        console.print('[dim]  export GITHUB_TOKEN="github_pat_..."[/dim]')
+        console.print('[dim]  echo \'export GITHUB_TOKEN="github_pat_..."\' >> ~/.zshrc[/dim]')
+        console.print('\n[dim]A classic PAT with no scopes (or a fine-grained token with "Models" access) is sufficient.[/dim]')
 
     console.print(
         f"\n[bold]Done.[/bold] Config lives at [dim]{config_path}[/dim] — "

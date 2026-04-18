@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- GitHub Models LLM backend (`llm_backend: github`) — OpenAI-compatible endpoint via `GITHUB_TOKEN`, free tier (150 req/day), default model `gpt-4o-mini`
+
 ## [0.3.0] — 2026-04-10
 
 ### Added
