@@ -15,9 +15,17 @@ LANG_MAP: dict[str, str] = {
     ".js":   "tree_sitter_javascript",
     ".jsx":  "tree_sitter_javascript",
     ".ts":   "tree_sitter_typescript",
-    ".tsx":  "tree_sitter_tsx",        # Note: tsx has its own grammar, NOT typescript
+    ".tsx":  "tree_sitter_typescript",  # TSX grammar is in the typescript package
     ".rs":   "tree_sitter_rust",
     ".java": "tree_sitter_java",
+}
+
+# Explicit language name per extension — overrides the module-name-derived default.
+# Needed because .ts and .tsx share the same module (tree_sitter_typescript) but
+# the language label in output must remain distinct.
+_EXT_LANGUAGE: dict[str, str] = {
+    ".ts":  "typescript",
+    ".tsx": "tsx",
 }
 
 _SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", "target"}
@@ -32,7 +40,13 @@ def _get_parser(ext: str) -> Any:
     import tree_sitter
     module_name = LANG_MAP[ext]
     lang_module = importlib.import_module(module_name)
-    language = tree_sitter.Language(lang_module.language())
+    # tree_sitter_typescript exposes language_typescript() and language_tsx()
+    # rather than a generic language(); handle it explicitly.
+    if module_name == "tree_sitter_typescript":
+        lang_fn = lang_module.language_tsx if ext == ".tsx" else lang_module.language_typescript
+    else:
+        lang_fn = lang_module.language
+    language = tree_sitter.Language(lang_fn())
     parser = tree_sitter.Parser(language)
     return parser
 
@@ -101,8 +115,9 @@ def _extract_file(abs_path: Path, ext: str, repo_root: Path) -> dict:
     root = tree.root_node
 
     module_name = LANG_MAP[ext]
-    # e.g. "tree_sitter_python" -> "python", "tree_sitter_tsx" -> "tsx"
-    language = module_name.replace("tree_sitter_", "")
+    # Use explicit override if present (e.g. .tsx -> "tsx" not "typescript"),
+    # otherwise derive from module name: "tree_sitter_python" -> "python"
+    language = _EXT_LANGUAGE.get(ext, module_name.replace("tree_sitter_", ""))
 
     classes: list[dict] = []
     functions: list[dict] = []

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import pytest
-from spec_agent.init_agent import run_init_agent, _MAX_ITERATIONS
+from spec_agent.init_agent import run_init_agent, _MAX_ITERATIONS, _MAX_ITERATIONS_AST, _MAX_ITERATIONS_FALLBACK
 from spec_agent.config import Config
 from spec_agent.backends.base import ChatResponse, ToolCall
 import json
@@ -136,17 +136,33 @@ class TestRunInitAgent:
         result = json.loads(results_seen[0])
         assert "My Service" in result.get("content", "")
 
-    def test_respects_max_iterations(self, cfg: Config, repo: Path) -> None:
-        """Agent halts after _MAX_ITERATIONS even if always returning tool_use."""
+    def test_respects_max_iterations_fallback(self, cfg: Config, repo: Path) -> None:
+        """Agent halts after _MAX_ITERATIONS_FALLBACK when AST extraction yields no files."""
         mock_backend = MagicMock()
         mock_backend.chat.return_value = _tool_use("list_directory", {})
         mock_backend.make_user_message.side_effect = lambda c: {"role": "user", "content": c}
         mock_backend.make_tool_results_messages.return_value = [{"role": "tool", "content": '{"tree": ""}'}]
 
-        with patch("spec_agent.init_agent.get_backend", return_value=mock_backend):
+        empty_ast = {"files": [], "skipped": []}
+        with patch("spec_agent.init_agent.get_backend", return_value=mock_backend), \
+             patch("spec_agent.init_agent._extract_repo_structure", return_value=empty_ast):
             run_init_agent(repo_path=str(repo), repo_name="my-service", cfg=cfg)
 
-        assert mock_backend.chat.call_count == _MAX_ITERATIONS
+        assert mock_backend.chat.call_count == _MAX_ITERATIONS_FALLBACK
+
+    def test_respects_max_iterations_ast(self, cfg: Config, repo: Path) -> None:
+        """Agent halts after _MAX_ITERATIONS_AST when AST extraction yields files."""
+        mock_backend = MagicMock()
+        mock_backend.chat.return_value = _tool_use("list_directory", {})
+        mock_backend.make_user_message.side_effect = lambda c: {"role": "user", "content": c}
+        mock_backend.make_tool_results_messages.return_value = [{"role": "tool", "content": '{"tree": ""}'}]
+
+        ast_result = {"files": [{"path": "main.py", "language": "python", "classes": [], "functions": [], "imports": []}], "skipped": []}
+        with patch("spec_agent.init_agent.get_backend", return_value=mock_backend), \
+             patch("spec_agent.init_agent._extract_repo_structure", return_value=ast_result):
+            run_init_agent(repo_path=str(repo), repo_name="my-service", cfg=cfg)
+
+        assert mock_backend.chat.call_count == _MAX_ITERATIONS_AST
 
     def test_deep_mode_uses_different_prompt(self, cfg: Config, repo: Path) -> None:
         """--deep mode passes a different system prompt."""

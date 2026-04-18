@@ -43,6 +43,43 @@ class TestExtractPython:
         assert "pathlib" in joined
 
 
+class TestExtractTypeScript:
+    def test_extract_typescript_functions(self, tmp_path: Path) -> None:
+        """Parse a TypeScript snippet; assert function names extracted and language is 'typescript'."""
+        pytest.importorskip("tree_sitter", reason="tree-sitter not installed")
+        pytest.importorskip("tree_sitter_typescript", reason="tree-sitter-typescript not installed")
+        from spec_agent.ast_extractor import _extract_file
+        f = tmp_path / "service.ts"
+        f.write_text(
+            "import { Injectable } from '@angular/core';\n"
+            "class UserService {\n"
+            "  getUser(): string { return 'user'; }\n"
+            "}\n"
+            "function helperFn(): void {}\n"
+        )
+        result = _extract_file(f, ".ts", tmp_path)
+        assert result["language"] == "typescript"
+        class_names = [c["name"] for c in result["classes"]]
+        assert "UserService" in class_names
+        func_names = [fn["name"] for fn in result["functions"]]
+        assert "helperFn" in func_names
+
+    def test_extract_tsx_functions(self, tmp_path: Path) -> None:
+        """Parse a TSX snippet; assert language is 'tsx' (not 'typescript')."""
+        pytest.importorskip("tree_sitter", reason="tree-sitter not installed")
+        pytest.importorskip("tree_sitter_typescript", reason="tree-sitter-typescript not installed")
+        from spec_agent.ast_extractor import _extract_file
+        f = tmp_path / "Button.tsx"
+        f.write_text(
+            "import React from 'react';\n"
+            "function Button(): JSX.Element { return <button/>; }\n"
+        )
+        result = _extract_file(f, ".tsx", tmp_path)
+        assert result["language"] == "tsx"
+        func_names = [fn["name"] for fn in result["functions"]]
+        assert "Button" in func_names
+
+
 class TestExtractUnsupported:
     def test_extract_unsupported_extension(self, tmp_path: Path) -> None:
         """extract_repo_structure on .rb file returns files=[].
