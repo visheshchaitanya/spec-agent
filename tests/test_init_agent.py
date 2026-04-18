@@ -3,9 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import pytest
-from spec_agent.init_agent import run_init_agent, _MAX_ITERATIONS
+from spec_agent.init_agent import run_init_agent, _MAX_ITERATIONS, _MAX_ITERATIONS_AST, _MAX_ITERATIONS_FALLBACK
 from spec_agent.config import Config
 from spec_agent.backends.base import ChatResponse, ToolCall
+import json
 
 
 @pytest.fixture
@@ -135,17 +136,33 @@ class TestRunInitAgent:
         result = json.loads(results_seen[0])
         assert "My Service" in result.get("content", "")
 
-    def test_respects_max_iterations(self, cfg: Config, repo: Path) -> None:
-        """Agent halts after _MAX_ITERATIONS even if always returning tool_use."""
+    def test_respects_max_iterations_fallback(self, cfg: Config, repo: Path) -> None:
+        """Agent halts after _MAX_ITERATIONS_FALLBACK when AST extraction yields no files."""
         mock_backend = MagicMock()
         mock_backend.chat.return_value = _tool_use("list_directory", {})
         mock_backend.make_user_message.side_effect = lambda c: {"role": "user", "content": c}
         mock_backend.make_tool_results_messages.return_value = [{"role": "tool", "content": '{"tree": ""}'}]
 
-        with patch("spec_agent.init_agent.get_backend", return_value=mock_backend):
+        empty_ast = {"files": [], "skipped": []}
+        with patch("spec_agent.init_agent.get_backend", return_value=mock_backend), \
+             patch("spec_agent.init_agent._extract_repo_structure", return_value=empty_ast):
             run_init_agent(repo_path=str(repo), repo_name="my-service", cfg=cfg)
 
-        assert mock_backend.chat.call_count == _MAX_ITERATIONS
+        assert mock_backend.chat.call_count == _MAX_ITERATIONS_FALLBACK
+
+    def test_respects_max_iterations_ast(self, cfg: Config, repo: Path) -> None:
+        """Agent halts after _MAX_ITERATIONS_AST when AST extraction yields files."""
+        mock_backend = MagicMock()
+        mock_backend.chat.return_value = _tool_use("list_directory", {})
+        mock_backend.make_user_message.side_effect = lambda c: {"role": "user", "content": c}
+        mock_backend.make_tool_results_messages.return_value = [{"role": "tool", "content": '{"tree": ""}'}]
+
+        ast_result = {"files": [{"path": "main.py", "language": "python", "classes": [], "functions": [], "imports": []}], "skipped": []}
+        with patch("spec_agent.init_agent.get_backend", return_value=mock_backend), \
+             patch("spec_agent.init_agent._extract_repo_structure", return_value=ast_result):
+            run_init_agent(repo_path=str(repo), repo_name="my-service", cfg=cfg)
+
+        assert mock_backend.chat.call_count == _MAX_ITERATIONS_AST
 
     def test_deep_mode_uses_different_prompt(self, cfg: Config, repo: Path) -> None:
         """--deep mode passes a different system prompt."""
@@ -188,3 +205,116 @@ class TestRunInitAgent:
         assert messages_seen
         assert "src/app.py" in messages_seen[0]
         assert "src/new_module.py" in messages_seen[0]
+
+    def test_run_init_agent_injects_ast_block(
+        self, cfg: Config, repo: Path, mocker
+    ) -> None:
+        """When AST extraction returns data, <repo-structure> appears in user message."""
+        mock_ast = mocker.patch(
+            "spec_agent.init_agent._extract_repo_structure",
+            return_value={
+                "files": [
+                    {"path": "src/main.py", "language": "python", "classes": [], "functions": [{"name": "main", "line": 1}], "imports": []}
+                ],
+                "skipped": [],
+            },
+        )
+        mocker.patch("spec_agent.init_agent._AST_AVAILABLE", True)
+
+        messages_seen = []
+
+        def fake_make_user_message(content):
+            messages_seen.append(content)
+            return {"role": "user", "content": content}
+
+        mock_backend = MagicMock()
+        mock_backend.chat.return_value = _end_turn()
+        mock_backend.make_user_message.side_effect = fake_make_user_message
+
+        with patch("spec_agent.init_agent.get_backend", return_value=mock_backend):
+            run_init_agent(repo_path=str(repo), repo_name="my-service", cfg=cfg)
+
+        assert messages_seen
+        assert "<repo-structure>" in messages_seen[0]
+        assert "main.py" in messages_seen[0]
+
+    def test_run_init_agent_fallback_when_ast_empty(
+        self, cfg: Config, repo: Path, mocker
+    ) -> None:
+        """When AST returns no files, <repo-structure> does NOT appear in user message."""
+        mocker.patch(
+            "spec_agent.init_agent._extract_repo_structure",
+            return_value={"files": [], "skipped": ["foo.rb"]},
+        )
+        mocker.patch("spec_agent.init_agent._AST_AVAILABLE", True)
+
+        messages_seen = []
+
+        def fake_make_user_message(content):
+            messages_seen.append(content)
+            return {"role": "user", "content": content}
+
+        mock_backend = MagicMock()
+        mock_backend.chat.return_value = _end_turn()
+        mock_backend.make_user_message.side_effect = fake_make_user_message
+
+        with patch("spec_agent.init_agent.get_backend", return_value=mock_backend):
+            run_init_agent(repo_path=str(repo), repo_name="my-service", cfg=cfg)
+
+        assert messages_seen
+        assert "<repo-structure>" not in messages_seen[0]
+
+    def test_run_init_agent_uses_ast_system_prompt(
+        self, cfg: Config, repo: Path, mocker
+    ) -> None:
+        """When AST data is available, system prompt contains 'pre-extracted'."""
+        mocker.patch(
+            "spec_agent.init_agent._extract_repo_structure",
+            return_value={
+                "files": [{"path": "main.py", "language": "python", "classes": [], "functions": [], "imports": []}],
+                "skipped": [],
+            },
+        )
+        mocker.patch("spec_agent.init_agent._AST_AVAILABLE", True)
+
+        prompts_seen = []
+
+        def fake_chat(**kwargs):
+            prompts_seen.append(kwargs.get("system", ""))
+            return _end_turn()
+
+        mock_backend = MagicMock()
+        mock_backend.chat.side_effect = fake_chat
+        mock_backend.make_user_message.side_effect = lambda c: {"role": "user", "content": c}
+
+        with patch("spec_agent.init_agent.get_backend", return_value=mock_backend):
+            run_init_agent(repo_path=str(repo), repo_name="my-service", cfg=cfg)
+
+        assert prompts_seen
+        assert "pre-extracted" in prompts_seen[0]
+
+    def test_run_init_agent_uses_fallback_system_prompt(
+        self, cfg: Config, repo: Path, mocker
+    ) -> None:
+        """When AST data is empty, system prompt still contains 'list_directory'."""
+        mocker.patch(
+            "spec_agent.init_agent._extract_repo_structure",
+            return_value={"files": [], "skipped": []},
+        )
+        mocker.patch("spec_agent.init_agent._AST_AVAILABLE", True)
+
+        prompts_seen = []
+
+        def fake_chat(**kwargs):
+            prompts_seen.append(kwargs.get("system", ""))
+            return _end_turn()
+
+        mock_backend = MagicMock()
+        mock_backend.chat.side_effect = fake_chat
+        mock_backend.make_user_message.side_effect = lambda c: {"role": "user", "content": c}
+
+        with patch("spec_agent.init_agent.get_backend", return_value=mock_backend):
+            run_init_agent(repo_path=str(repo), repo_name="my-service", cfg=cfg)
+
+        assert prompts_seen
+        assert "list_directory" in prompts_seen[0]
