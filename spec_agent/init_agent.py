@@ -12,9 +12,17 @@ from spec_agent.tools.wiki_write import write_wiki_file
 from spec_agent.tools.wiki_search import search_wiki
 from spec_agent.tools.wiki_index import update_index
 
+try:
+    from spec_agent.ast_extractor import extract_repo_structure as _extract_repo_structure
+    _AST_AVAILABLE = True
+except ImportError:
+    _AST_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
-_MAX_ITERATIONS = 30  # See GitHub issue #5 for chunked Phase 2 optimization
+_MAX_ITERATIONS_AST = 15      # when AST data is injected — LLM needs fewer iterations
+_MAX_ITERATIONS_FALLBACK = 30  # when falling back to LLM-reads-files
+_MAX_ITERATIONS = _MAX_ITERATIONS_FALLBACK  # backward-compat alias used by tests
 
 INIT_TOOL_DEFINITIONS = [
     {
@@ -230,6 +238,51 @@ date: <today's date>
 - Call search_wiki before writing any doc to check if it already exists.
 """
 
+_SHALLOW_SYSTEM_PROMPT_AST = _SHALLOW_SYSTEM_PROMPT.replace(
+    "**Step 1 — Understand the repo (shallow scan):**\n"
+    "- Call list_directory with relative_path=\".\" to see the top-level structure.\n"
+    "- Read these files first, in order of priority, if they exist:\n"
+    "  1. README.md, CLAUDE.md, .cursorrules, AGENTS.md\n"
+    "  2. Project config: pyproject.toml, pom.xml, package.json, build.gradle, go.mod\n"
+    "  3. Main entry point: main.py, app.py, Application.java, main.go, index.ts, server.py\n"
+    "- Based on what you have read, identify the 3-6 most architecturally significant components.",
+    "**Step 1 — Use pre-extracted structure (AST mode):**\n"
+    "- The user message contains a `<repo-structure>` block with pre-extracted AST data "
+    "(classes, functions, imports) for all recognized source files.\n"
+    "- Use it as your primary structural reference. You do NOT need to call "
+    "`list_directory` or `read_source_file` for the main scan.\n"
+    "- Call `list_directory` or `read_source_file` ONLY if you need specific "
+    "implementation details not present in the structure block.\n"
+    "- Based on the structure block, identify the 3-6 most architecturally significant components.",
+)
+
+assert "pre-extracted" in _SHALLOW_SYSTEM_PROMPT_AST, (
+    "AST replacement failed for _SHALLOW_SYSTEM_PROMPT_AST — check that the Step 1 text matches exactly."
+)
+
+_DEEP_SYSTEM_PROMPT_AST = _DEEP_SYSTEM_PROMPT.replace(
+    "**Step 1 — Deep-dive the repo (--deep mode):**\n"
+    "- Call list_directory with relative_path=\".\" to see the top-level structure.\n"
+    "- Call list_directory on subdirectories that look important.\n"
+    "- Read these files first, in order of priority:\n"
+    "  1. README.md, CLAUDE.md, .cursorrules, AGENTS.md\n"
+    "  2. Project config: pyproject.toml, pom.xml, package.json, build.gradle, go.mod\n"
+    "  3. Main entry point: main.py, app.py, Application.java, main.go, index.ts, server.py\n"
+    "- Then read source files for all significant components (up to 40 files total).\n"
+    "- Include test files to understand expected behaviour.\n"
+    "- Based on what you have read, identify ALL architecturally significant components.",
+    "**Step 1 — Use pre-extracted structure (AST mode, --deep):**\n"
+    "- The user message contains a `<repo-structure>` block with pre-extracted AST data "
+    "(classes, functions, imports) for all recognized source files.\n"
+    "- Use it as your primary structural reference. You may still call `read_source_file` "
+    "for implementation details of the most important components (up to 10 files).\n"
+    "- Based on the structure block, identify ALL architecturally significant components.",
+)
+
+assert "pre-extracted" in _DEEP_SYSTEM_PROMPT_AST, (
+    "AST replacement failed for _DEEP_SYSTEM_PROMPT_AST — check that the Step 1 text matches exactly."
+)
+
 
 def _dispatch_tool(
     name: str, tool_input: dict, repo_path: str, vault_path: str
@@ -268,7 +321,6 @@ def run_init_agent(
     """Run the KB initialisation agent for a repository."""
     vault_path = str(cfg.vault_path)
     backend = get_backend(cfg)
-    system_prompt = _DEEP_SYSTEM_PROMPT if deep else _SHALLOW_SYSTEM_PROMPT
 
     mode_note = "deep scan (--deep)" if deep else "shallow scan"
     changed_note = ""
@@ -277,20 +329,51 @@ def run_init_agent(
         suffix = f"\n... and {len(changed_files) - 20} more" if len(changed_files) > 20 else ""
         changed_note = f"\n\nFiles changed since last init:\n{listed}{suffix}"
 
+    # Attempt AST pre-extraction
+    has_ast = False
+    ast_block = ""
+    if _AST_AVAILABLE:
+        try:
+            ast_summary = _extract_repo_structure(
+                repo_path,
+                files=changed_files if changed_files else None,
+            )
+            if ast_summary.get("files"):
+                has_ast = True
+                compact_json = json.dumps(ast_summary, separators=(",", ":"))
+                ast_block = (
+                    f"\n\n<repo-structure>\n{compact_json}\n</repo-structure>\n\n"
+                    "The repo-structure block above contains pre-extracted AST data (classes, "
+                    "functions, imports) for all recognized source files. Use it as your primary "
+                    "structural reference. You do NOT need to call list_directory or "
+                    "read_source_file for the main scan — proceed directly to writing KB docs. "
+                    "Those tools remain available if you need specific implementation details."
+                )
+        except Exception:
+            logger.warning("spec-agent init: AST extraction failed, falling back to LLM-reads-files")
+
     user_message = (
         f"Build a knowledge base for this repository.\n\n"
         f"Repository name: {repo_name}\n"
         f"Repo root: {repo_path}\n"
         f"Mode: {mode_note}\n"
         f"Vault KB path: projects/{repo_name}/\n"
-        f"{changed_note}\n\n"
-        f"Follow the steps in your instructions to explore the repo and write the KB docs."
+        f"{changed_note}"
+        f"{ast_block}\n\n"
+        "Follow the steps in your instructions to explore the repo and write the KB docs."
     )
+
+    if has_ast:
+        system_prompt = _DEEP_SYSTEM_PROMPT_AST if deep else _SHALLOW_SYSTEM_PROMPT_AST
+        max_iterations = _MAX_ITERATIONS_AST
+    else:
+        system_prompt = _DEEP_SYSTEM_PROMPT if deep else _SHALLOW_SYSTEM_PROMPT
+        max_iterations = _MAX_ITERATIONS_FALLBACK
 
     messages = [backend.make_user_message(user_message)]
     iteration = 0
 
-    while iteration < _MAX_ITERATIONS:
+    while iteration < max_iterations:
         iteration += 1
         response = backend.chat(
             system=system_prompt,
@@ -316,8 +399,8 @@ def run_init_agent(
             )
             break
 
-    if iteration >= _MAX_ITERATIONS:
+    if iteration >= max_iterations:
         logger.error(
             "spec-agent init: hit max iteration cap (%d) — possible runaway loop, aborting",
-            _MAX_ITERATIONS,
+            max_iterations,
         )
