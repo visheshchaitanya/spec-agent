@@ -118,6 +118,42 @@ class TestWalkRepo:
         assert ".hidden.py" not in rel_results
         assert "config" not in rel_results
 
+    def test_walk_repo_skips_symlinks_outside_root(self, tmp_path: Path) -> None:
+        """Symlinks pointing outside the repo root are skipped."""
+        import os
+        from spec_agent.ast_extractor import _walk_repo
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "secret.py").write_text("x = 1")
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "main.py").write_text("y = 2")
+        # Create a symlink inside repo that points outside
+        link = repo / "escape.py"
+        link.symlink_to(outside / "secret.py")
+        results = _walk_repo(str(repo))
+        names = [Path(r).name for r in results]
+        assert "main.py" in names
+        assert "escape.py" not in names  # symlink escaping root rejected
+
+
+class TestRepoStructureSecurityPaths:
+    def test_extract_repo_structure_rejects_out_of_root_path(self, tmp_path: Path) -> None:
+        """Caller-supplied files outside repo_root are rejected and go to skipped."""
+        from spec_agent.ast_extractor import extract_repo_structure
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        outside = tmp_path / "outside.py"
+        outside.write_text("x = 1")
+        result = extract_repo_structure(
+            str(repo),
+            files=[str(outside)],
+        )
+        assert result["files"] == []
+        # Either error (no tree-sitter) or the path lands in skipped
+        if "error" not in result:
+            assert any("outside" in s for s in result.get("skipped", []))
+
 
 class TestExtractDiffSymbols:
     def test_extract_diff_symbols_basic(self) -> None:
