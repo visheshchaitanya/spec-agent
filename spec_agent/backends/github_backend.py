@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from typing import Any
 
 import requests
 
@@ -40,7 +41,7 @@ class GitHubBackend(LLMBackend):
 
         converted_tools = anthropic_to_openai_tools(tools)
 
-        payload: dict = {
+        payload: dict[str, Any] = {
             "model": self.model,
             "messages": [{"role": "system", "content": system}, *messages],
             "max_tokens": max_tokens,
@@ -104,21 +105,22 @@ class GitHubBackend(LLMBackend):
             # "stop", None, "content_filter", or anything else
             stop_reason = "end_turn"
 
-        raw_assistant_turn = {
+        raw_assistant_turn: dict[str, Any] = {
             "role": "assistant",
             "content": message.get("content"),
-            "tool_calls": [
+        }
+        if tool_calls:
+            raw_assistant_turn["tool_calls"] = [
                 {
                     "id": tc_data.id,
                     "type": "function",
                     "function": {
                         "name": tc_data.name,
-                        "arguments": json.dumps(tc_data.arguments),  # re-serialize to string
+                        "arguments": json.dumps(tc_data.arguments),
                     },
                 }
                 for tc_data in tool_calls
-            ],
-        }
+            ]
 
         return ChatResponse(
             stop_reason=stop_reason,
@@ -135,7 +137,7 @@ class GitHubBackend(LLMBackend):
     ) -> list[dict]:
         return [
             {"role": "tool", "tool_call_id": tc.id, "content": result}
-            for tc, result in zip(tool_calls, results)
+            for tc, result in zip(tool_calls, results, strict=True)
         ]
 
     def convert_tools(self, tool_definitions: list[dict]) -> list[dict]:
