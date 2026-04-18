@@ -9,6 +9,12 @@ from spec_agent.tools.wiki_write import write_wiki_file
 from spec_agent.tools.wiki_search import search_wiki
 from spec_agent.tools.wiki_index import update_index
 
+try:
+    from spec_agent.ast_extractor import extract_diff_symbols as _extract_diff_symbols
+    _DIFF_AST_AVAILABLE = True
+except ImportError:
+    _DIFF_AST_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 TOOL_DEFINITIONS = [
@@ -223,6 +229,18 @@ def run_agent(
     vault_path = str(cfg.vault_path)
     backend = get_backend(cfg)
 
+    # Extract changed symbols from diff for additional context
+    symbols_note = ""
+    if _DIFF_AST_AVAILABLE:
+        try:
+            changed_symbols = _extract_diff_symbols(diff)
+            if changed_symbols:
+                symbols_note = "\n\nChanged symbols (AST-extracted):\n" + json.dumps(
+                    changed_symbols, indent=2
+                )
+        except Exception:
+            logger.warning("spec-agent: AST diff symbol extraction failed, skipping enrichment")
+
     user_message = (
         "Classify this push as one of: feature | bug | refactor | arch | chore.\n"
         "Use the commit message prefix as the primary signal "
@@ -230,6 +248,7 @@ def run_agent(
         f"Repository: {repo_name}\n"
         f"Branch: {branch}\n"
         "Commit messages:\n" + "\n".join(f"- {m}" for m in commit_messages) +
+        f"{symbols_note}"
         f"\n\nGit diff (truncated to 50,000 chars):\n```\n{diff[:50_000]}\n```"
     )
 
