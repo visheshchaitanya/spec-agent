@@ -230,6 +230,7 @@ class TestRunInitAgent:
         mock_backend = MagicMock()
         mock_backend.chat.return_value = _end_turn()
         mock_backend.make_user_message.side_effect = fake_make_user_message
+        mock_backend.ast_budget_chars = None  # unlimited — don't truncate AST
 
         with patch("spec_agent.init_agent.get_backend", return_value=mock_backend):
             run_init_agent(repo_path=str(repo), repo_name="my-service", cfg=cfg)

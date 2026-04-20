@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import logging
 import os
+import time
 
 import anthropic
 
 from spec_agent.backends.base import ChatResponse, LLMBackend, ToolCall
+
+logger = logging.getLogger(__name__)
+
+_RATE_LIMIT_RETRIES = 5
+_RATE_LIMIT_BASE_DELAY = 60  # seconds
 
 
 class AnthropicBackend(LLMBackend):
@@ -26,13 +33,28 @@ class AnthropicBackend(LLMBackend):
         max_tokens: int = 4096,
     ) -> ChatResponse:
         client = anthropic.Anthropic(api_key=self.api_key)
-        response = client.messages.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            system=system,
-            tools=self.convert_tools(tools),
-            messages=messages,
-        )
+
+        for attempt in range(_RATE_LIMIT_RETRIES):
+            try:
+                response = client.messages.create(
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    system=system,
+                    tools=self.convert_tools(tools),
+                    messages=messages,
+                )
+                break
+            except anthropic.RateLimitError as exc:
+                if attempt >= _RATE_LIMIT_RETRIES - 1:
+                    raise
+                delay = _RATE_LIMIT_BASE_DELAY * (2 ** attempt)
+                logger.warning(
+                    "Anthropic rate limit hit (attempt %d/%d). Retrying in %ds. %s",
+                    attempt + 1, _RATE_LIMIT_RETRIES, delay, exc,
+                )
+                time.sleep(delay)
+        else:
+            raise RuntimeError("Exhausted rate-limit retries")
 
         stop_reason = (
             response.stop_reason

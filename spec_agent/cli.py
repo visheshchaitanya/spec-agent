@@ -1,4 +1,6 @@
 from __future__ import annotations
+import logging
+import logging.handlers
 import os
 import subprocess
 import sys
@@ -14,12 +16,32 @@ from spec_agent.tools.init_cache import get_changed_files, save_cache
 
 console = Console()
 
+LOG_PATH = Path.home() / ".spec-agent" / "spec-agent.log"
+
+
+def _setup_logging() -> None:
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.handlers.RotatingFileHandler(
+        LOG_PATH, maxBytes=2 * 1024 * 1024, backupCount=3, encoding="utf-8"
+    )
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)-8s %(name)s: %(message)s")
+    )
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    root.addHandler(handler)
+
 _HOOK_SCRIPT = """\
 #!/usr/bin/env bash
 # spec-agent pre-push hook
 # Fires before every git push. Git passes the commit range via stdin.
 
 set -euo pipefail
+
+# Load user environment so API keys set in .zshrc/.bashrc are available
+[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null || true
+[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null || true
+[ -f "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null || true
 
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -58,7 +80,8 @@ spec-agent run \\
     --repo "$REPO_NAME" \\
     --branch "$BRANCH" \\
     --messages "$COMMITS" \\
-    --diff-file "$DIFF_FILE" &
+    --diff-file "$DIFF_FILE" >> /tmp/spec-agent-hook.log 2>&1 &
+disown $!
 
 exit 0
 """
@@ -78,6 +101,7 @@ def _detect_repo_name() -> str:
 @click.group()
 def cli():
     """spec-agent: Auto-generate wiki specs from git commits."""
+    _setup_logging()
 
 
 @cli.command()
@@ -88,6 +112,8 @@ def cli():
 @click.option("--config", default=str(DEFAULT_CONFIG_PATH), help="Path to config.yaml")
 def run(repo, branch, messages, diff_file, config):
     """Run the spec agent (called by git hook)."""
+    logger = logging.getLogger(__name__)
+    logger.info("run started — repo=%s branch=%s", repo, branch)
     cfg = load_config(Path(config))
 
     if cfg.is_repo_ignored(repo):
@@ -113,13 +139,18 @@ def run(repo, branch, messages, diff_file, config):
         console.print(f"[yellow]spec-agent: could not remove temp file {diff_path}: {e}[/yellow]")
 
     console.print(f"[cyan]spec-agent:[/cyan] processing push to {repo}/{branch}")
-    run_agent(
-        diff=diff,
-        commit_messages=commit_messages,
-        repo_name=repo,
-        branch=branch,
-        cfg=cfg,
-    )
+    try:
+        run_agent(
+            diff=diff,
+            commit_messages=commit_messages,
+            repo_name=repo,
+            branch=branch,
+            cfg=cfg,
+        )
+    except Exception:
+        logger.exception("run failed for %s/%s", repo, branch)
+        raise
+    logger.info("run finished — repo=%s branch=%s", repo, branch)
     console.print(f"[green]spec-agent:[/green] done — check {cfg.vault_path}")
 
 
@@ -377,19 +408,48 @@ def init_repo(deep: bool, force: bool, config: str) -> None:
 
     changed_files = get_changed_files(repo_root, repo_name) if force else None
 
+    logger = logging.getLogger(__name__)
     mode = "[deep]" if deep else "[shallow]"
+    logger.info("init-repo started — repo=%s mode=%s", repo_name, mode.strip("[]"))
     console.print(f"[cyan]spec-agent init-repo:[/cyan] scanning {repo_name} {mode}...")
 
-    run_init_agent(
-        repo_path=repo_root,
-        repo_name=repo_name,
-        cfg=cfg,
-        deep=deep,
-        changed_files=changed_files,
-    )
+    try:
+        run_init_agent(
+            repo_path=repo_root,
+            repo_name=repo_name,
+            cfg=cfg,
+            deep=deep,
+            changed_files=changed_files,
+        )
+    except Exception:
+        logger.exception("init-repo failed for %s", repo_name)
+        raise
 
     save_cache(repo_name, repo_root)
+    logger.info("init-repo finished — repo=%s kb_path=%s", repo_name, kb_path)
     console.print(f"[green]✓[/green] KB written to {kb_path}")
     console.print(
         f"[green]✓[/green] Cache saved — future [bold]--force[/bold] runs will focus on changed files"
     )
+
+
+@cli.command("logs")
+@click.option("-n", default=50, help="Number of lines to show (default: 50)")
+@click.option("--errors", is_flag=True, default=False, help="Show only ERROR and above")
+def logs(n: int, errors: bool) -> None:
+    """Show recent spec-agent log entries."""
+    if not LOG_PATH.exists():
+        console.print(f"[yellow]No log file found at {LOG_PATH}[/yellow]")
+        return
+
+    lines = LOG_PATH.read_text(encoding="utf-8").splitlines()
+    if errors:
+        lines = [l for l in lines if " ERROR    " in l or " CRITICAL " in l]
+
+    for line in lines[-n:]:
+        if " ERROR    " in line or " CRITICAL " in line:
+            console.print(f"[red]{line}[/red]")
+        elif " WARNING  " in line:
+            console.print(f"[yellow]{line}[/yellow]")
+        else:
+            console.print(f"[dim]{line}[/dim]")

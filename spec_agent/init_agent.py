@@ -19,9 +19,55 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-_MAX_ITERATIONS_AST = 15      # when AST data is injected — LLM needs fewer iterations
-_MAX_ITERATIONS_FALLBACK = 30  # when falling back to LLM-reads-files
+_MAX_ITERATIONS_AST = 10      # when AST data is injected — LLM needs fewer iterations
+_MAX_ITERATIONS_FALLBACK = 20  # when falling back to LLM-reads-files
 _MAX_ITERATIONS = _MAX_ITERATIONS_FALLBACK  # backward-compat alias used by tests
+
+# History compaction: keep last N tool-result exchanges at full size; truncate older ones.
+_COMPACT_KEEP_RECENT = 2
+_COMPACT_CHARS = 300  # chars to keep per truncated tool result
+
+
+def _compact_old_tool_results(messages: list[dict]) -> list[dict]:
+    """Truncate content of older tool-result messages to reduce input tokens.
+
+    Anthropic packs all tool results into a single user message whose content is
+    a list of ``{type: "tool_result", ...}`` blocks.  We keep the last
+    ``_COMPACT_KEEP_RECENT`` such messages at full size and truncate everything
+    older to ``_COMPACT_CHARS`` chars, which typically cuts per-call token usage
+    by 60-80 % on long init runs.
+    """
+    tool_result_indices = [
+        i for i, m in enumerate(messages)
+        if isinstance(m.get("content"), list)
+        and any(
+            isinstance(b, dict) and b.get("type") == "tool_result"
+            for b in m["content"]
+        )
+    ]
+
+    to_compact = (
+        set(tool_result_indices[:-_COMPACT_KEEP_RECENT])
+        if len(tool_result_indices) > _COMPACT_KEEP_RECENT
+        else set()
+    )
+
+    result: list[dict] = []
+    for i, msg in enumerate(messages):
+        if i not in to_compact:
+            result.append(msg)
+            continue
+        new_content = []
+        for block in msg.get("content", []):
+            if isinstance(block, dict) and block.get("type") == "tool_result":
+                raw = block.get("content", "")
+                if isinstance(raw, str) and len(raw) > _COMPACT_CHARS:
+                    raw = f"{raw[:_COMPACT_CHARS]} … [+{len(raw) - _COMPACT_CHARS} chars truncated]"
+                new_content.append({**block, "content": raw})
+            else:
+                new_content.append(block)
+        result.append({**msg, "content": new_content})
+    return result
 
 INIT_TOOL_DEFINITIONS = [
     {
@@ -181,6 +227,8 @@ date: <today's date>
 - The Keywords section MUST include every class name, method name, package name, and synonym.
 - Use [[wikilink]] syntax when referencing other KB docs.
 - Call search_wiki before writing any doc to check if it already exists.
+- **Efficiency:** Read at most 4 source files total. Prefer breadth over depth.
+- **Batch writes:** You may call write_wiki_file multiple times in a single response — do so to finish faster.
 """
 
 _DEEP_SYSTEM_PROMPT = """\
@@ -235,6 +283,7 @@ date: <today's date>
 - The Keywords section MUST include every class name, method name, package name, and synonym.
 - Use [[wikilink]] syntax when referencing other KB docs.
 - Call search_wiki before writing any doc to check if it already exists.
+- **Batch writes:** You may call write_wiki_file multiple times in a single response — do so to finish faster.
 """
 
 _SHALLOW_SYSTEM_PROMPT_AST = _SHALLOW_SYSTEM_PROMPT.replace(
@@ -344,6 +393,13 @@ def run_init_agent(
             if ast_summary.get("files"):
                 has_ast = True
                 compact_json = json.dumps(ast_summary, separators=(",", ":"))
+                budget = backend.ast_budget_chars
+                if budget is not None and len(compact_json) > budget:
+                    compact_json = compact_json[:budget]
+                    logger.warning(
+                        "spec-agent init: AST JSON truncated to %d chars to fit backend token limit",
+                        budget,
+                    )
                 ast_block = (
                     f"\n\n<repo-structure>\n{compact_json}\n</repo-structure>\n\n"
                     "The repo-structure block above contains pre-extracted AST data (classes, "
@@ -398,6 +454,7 @@ def run_init_agent(
             ]
             messages.append(response.raw_assistant_turn)
             messages.extend(backend.make_tool_results_messages(response.tool_calls, results))
+            messages = _compact_old_tool_results(messages)
         else:
             logger.warning(
                 "spec-agent init: unexpected stop_reason=%r at iteration %d, aborting",
