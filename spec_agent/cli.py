@@ -38,6 +38,11 @@ _HOOK_SCRIPT = """\
 
 set -euo pipefail
 
+# Load user environment so API keys set in .zshrc/.bashrc are available
+[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null || true
+[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null || true
+[ -f "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null || true
+
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
