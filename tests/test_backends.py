@@ -233,3 +233,10 @@ class TestGetBackend:
         base_cfg.llm_backend = "unknown-llm"
         with pytest.raises(ValueError, match="Unknown llm_backend"):
             get_backend(base_cfg)
+
+    def test_groq_backend(self, tmp_path: Path) -> None:
+        from spec_agent.backends.groq_backend import GroqBackend
+        cfg = Config(vault_path=tmp_path, llm_backend="groq", groq_model="llama-3.3-70b-versatile")
+        backend = get_backend(cfg)
+        assert isinstance(backend, GroqBackend)
+        assert backend.model == "llama-3.3-70b-versatile"
