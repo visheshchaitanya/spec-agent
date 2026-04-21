@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import uuid
 from typing import Any
 
 import requests
@@ -15,6 +17,32 @@ from spec_agent.backends.base import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_llama_xml_tool_call(failed_generation: str) -> ToolCall | None:
+    """Parse Llama-native XML tool call format from a Groq tool_use_failed error.
+
+    Llama models sometimes emit <function=NAME {...}></function> instead of
+    OpenAI tool_calls JSON. Groq rejects this with tool_use_failed but includes
+    the raw generation so we can recover it.
+    """
+    match = re.search(
+        r"<function=(\w+)\s*(\[.*?\]|\{.*?\})\s*>",
+        failed_generation,
+        re.DOTALL,
+    )
+    if not match:
+        return None
+    tool_name = match.group(1)
+    args_str = match.group(2)
+    try:
+        args = json.loads(args_str)
+        if isinstance(args, list):
+            args = args[0] if args else {}
+    except json.JSONDecodeError:
+        return None
+    tool_id = f"call_{uuid.uuid4().hex[:8]}"
+    return ToolCall(id=tool_id, name=tool_name, arguments=args)
 
 
 class GroqBackend(LLMBackend):
@@ -53,6 +81,7 @@ class GroqBackend(LLMBackend):
         }
         if converted_tools:
             payload["tools"] = converted_tools
+            payload["parallel_tool_calls"] = False
 
         resp = requests.post(
             f"{self.BASE_URL}/chat/completions",
@@ -69,6 +98,42 @@ class GroqBackend(LLMBackend):
                 "Groq rate limit exceeded. Free tier: 30 RPM / 1 000 RPD for llama-3.3-70b-versatile. "
                 "See https://console.groq.com/docs/rate-limits for current limits."
             )
+
+        if resp.status_code == 400:
+            error_data = resp.json()
+            error = error_data.get("error", {})
+            if error.get("code") == "tool_use_failed":
+                failed_gen = error.get("failed_generation", "")
+                tc = _parse_llama_xml_tool_call(failed_gen)
+                if tc:
+                    logger.warning(
+                        "Groq model %s generated Llama-native XML tool call format; "
+                        "recovered via fallback parser. Tool: %s",
+                        self.model,
+                        tc.name,
+                    )
+                    raw_assistant_turn: dict[str, Any] = {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.name,
+                                    "arguments": json.dumps(tc.arguments),
+                                },
+                            }
+                        ],
+                    }
+                    return ChatResponse(
+                        stop_reason="tool_use",
+                        text=None,
+                        tool_calls=[tc],
+                        raw_assistant_turn=raw_assistant_turn,
+                    )
+            raise RuntimeError(f"Groq API error {resp.status_code}: {resp.text}")
+
         if resp.status_code != 200:
             raise RuntimeError(
                 f"Groq API error {resp.status_code}: {resp.text}"
@@ -83,17 +148,17 @@ class GroqBackend(LLMBackend):
 
         raw_tool_calls = message.get("tool_calls") or []
         tool_calls: list[ToolCall] = []
-        for tc in raw_tool_calls:
+        for tc_raw in raw_tool_calls:
             try:
-                arguments = json.loads(tc["function"]["arguments"])
+                arguments = json.loads(tc_raw["function"]["arguments"])
             except (json.JSONDecodeError, KeyError) as e:
                 raise RuntimeError(
-                    f"Failed to parse tool call arguments: {e}\nRaw: {tc}"
+                    f"Failed to parse tool call arguments: {e}\nRaw: {tc_raw}"
                 )
             tool_calls.append(
                 ToolCall(
-                    id=tc["id"],
-                    name=tc["function"]["name"],
+                    id=tc_raw["id"],
+                    name=tc_raw["function"]["name"],
                     arguments=arguments,
                 )
             )
@@ -109,7 +174,7 @@ class GroqBackend(LLMBackend):
         else:
             stop_reason = "end_turn"
 
-        raw_assistant_turn: dict[str, Any] = {
+        raw_assistant_turn = {
             "role": "assistant",
             "content": message.get("content"),
         }

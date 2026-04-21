@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from spec_agent.backends.base import ToolCall
-from spec_agent.backends.groq_backend import GroqBackend
+from spec_agent.backends.groq_backend import GroqBackend, _parse_llama_xml_tool_call
 
 # ---------------------------------------------------------------------------
 # Helpers & fixtures
@@ -362,3 +362,98 @@ class TestGroqBackend:
 
         call_url = mock_post.call_args[0][0]
         assert call_url == "https://api.groq.com/openai/v1/chat/completions"
+
+
+class TestParseLlamaXmlToolCall:
+
+    # 25. Parses object format: <function=name {"key": "val"}>
+    def test_parses_object_format(self):
+        raw = '<function=search_wiki {"query": "auth"}></function>'
+        tc = _parse_llama_xml_tool_call(raw)
+        assert tc is not None
+        assert tc.name == "search_wiki"
+        assert tc.arguments == {"query": "auth"}
+        assert tc.id.startswith("call_")
+
+    # 26. Parses array format: <function=name [{"key": "val"}]>
+    def test_parses_array_format(self):
+        raw = '<function=search_wiki [{"limit": 5, "query": "feat"}]></function>'
+        tc = _parse_llama_xml_tool_call(raw)
+        assert tc is not None
+        assert tc.name == "search_wiki"
+        assert tc.arguments == {"limit": 5, "query": "feat"}
+
+    # 27. Returns None when format is not recognized
+    def test_returns_none_on_unrecognized_format(self):
+        assert _parse_llama_xml_tool_call("some random error text") is None
+
+    # 28. Returns None when JSON is malformed
+    def test_returns_none_on_malformed_json(self):
+        raw = "<function=search_wiki {bad json}>"
+        assert _parse_llama_xml_tool_call(raw) is None
+
+    # 29. Each call generates a unique id
+    def test_unique_ids(self):
+        raw = '<function=search_wiki {"query": "x"}></function>'
+        ids = {_parse_llama_xml_tool_call(raw).id for _ in range(5)}
+        assert len(ids) == 5
+
+
+class TestGroqBackendXmlFallback:
+
+    # 30. 400 tool_use_failed with parseable XML recovers and returns tool_use
+    def test_tool_use_failed_recovery(self, monkeypatch):
+        monkeypatch.setenv("GROQ_API_KEY", "gsk_test-key")
+        backend = GroqBackend()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 400
+        mock_resp.text = "tool_use_failed"
+        mock_resp.json.return_value = {
+            "error": {
+                "code": "tool_use_failed",
+                "failed_generation": '<function=search_wiki {"query": "auth"}></function>',
+            }
+        }
+
+        with patch("requests.post", return_value=mock_resp):
+            result = backend.chat("sys", [], SAMPLE_TOOLS)
+
+        assert result.stop_reason == "tool_use"
+        assert len(result.tool_calls) == 1
+        assert result.tool_calls[0].name == "search_wiki"
+        assert result.tool_calls[0].arguments == {"query": "auth"}
+        assert result.raw_assistant_turn["role"] == "assistant"
+        assert result.raw_assistant_turn["content"] is None
+
+    # 31. 400 tool_use_failed with unparseable XML still raises RuntimeError
+    def test_tool_use_failed_unparseable_raises(self, monkeypatch):
+        monkeypatch.setenv("GROQ_API_KEY", "gsk_test-key")
+        backend = GroqBackend()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 400
+        mock_resp.text = "tool_use_failed"
+        mock_resp.json.return_value = {
+            "error": {
+                "code": "tool_use_failed",
+                "failed_generation": "garbled output no function tag",
+            }
+        }
+
+        with patch("requests.post", return_value=mock_resp):
+            with pytest.raises(RuntimeError, match="400"):
+                backend.chat("sys", [], SAMPLE_TOOLS)
+
+    # 32. 400 with non-tool_use_failed code raises RuntimeError
+    def test_400_non_tool_use_failed_raises(self, monkeypatch):
+        monkeypatch.setenv("GROQ_API_KEY", "gsk_test-key")
+        backend = GroqBackend()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 400
+        mock_resp.text = "bad request"
+        mock_resp.json.return_value = {
+            "error": {"code": "invalid_request_error", "message": "bad"}
+        }
+
+        with patch("requests.post", return_value=mock_resp):
+            with pytest.raises(RuntimeError, match="400"):
+                backend.chat("sys", [], [])

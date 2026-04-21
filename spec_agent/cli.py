@@ -38,10 +38,14 @@ _HOOK_SCRIPT = """\
 
 set -euo pipefail
 
-# Load user environment so API keys set in .zshrc/.bashrc are available
-[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null || true
-[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null || true
-[ -f "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null || true
+# Load user shell profile so API keys (e.g. GROQ_API_KEY) are available
+# Temporarily disable set -e so zsh-specific lines don't abort sourcing
+set +e
+# shellcheck disable=SC1090
+[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null
+[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null
+[ -f "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null
+set -e
 
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
