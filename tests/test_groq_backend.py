@@ -366,8 +366,8 @@ class TestGroqBackend:
 
 class TestParseLlamaXmlToolCall:
 
-    # 25. Parses object format: <function=name {"key": "val"}>
-    def test_parses_object_format(self):
+    # 25. Parses object format with > separator: <function=name {"key": "val"}>
+    def test_parses_object_format_with_gt(self):
         raw = '<function=search_wiki {"query": "auth"}></function>'
         tc = _parse_llama_xml_tool_call(raw)
         assert tc is not None
@@ -375,7 +375,16 @@ class TestParseLlamaXmlToolCall:
         assert tc.arguments == {"query": "auth"}
         assert tc.id.startswith("call_")
 
-    # 26. Parses array format: <function=name [{"key": "val"}]>
+    # 26. Parses object format without space or >: <function=name{...}</function>
+    def test_parses_object_format_no_space_no_gt(self):
+        raw = '<function=update_index{"date": "2026-01-01", "type": "bug", "title": "Fix", "project": "myapp", "path": "bugs/fix"}</function>'
+        tc = _parse_llama_xml_tool_call(raw)
+        assert tc is not None
+        assert tc.name == "update_index"
+        assert tc.arguments["date"] == "2026-01-01"
+        assert tc.arguments["type"] == "bug"
+
+    # 27. Parses array format: <function=name [{"key": "val"}]>
     def test_parses_array_format(self):
         raw = '<function=search_wiki [{"limit": 5, "query": "feat"}]></function>'
         tc = _parse_llama_xml_tool_call(raw)
@@ -401,7 +410,7 @@ class TestParseLlamaXmlToolCall:
 
 class TestGroqBackendXmlFallback:
 
-    # 30. 400 tool_use_failed with parseable XML recovers and returns tool_use
+    # 30. 400 tool_use_failed with parseable XML (with >) recovers
     def test_tool_use_failed_recovery(self, monkeypatch):
         monkeypatch.setenv("GROQ_API_KEY", "gsk_test-key")
         backend = GroqBackend()
@@ -424,6 +433,28 @@ class TestGroqBackendXmlFallback:
         assert result.tool_calls[0].arguments == {"query": "auth"}
         assert result.raw_assistant_turn["role"] == "assistant"
         assert result.raw_assistant_turn["content"] is None
+
+    # 30b. 400 tool_use_failed with no space and no >: <function=name{...}</function>
+    def test_tool_use_failed_recovery_no_space_no_gt(self, monkeypatch):
+        monkeypatch.setenv("GROQ_API_KEY", "gsk_test-key")
+        backend = GroqBackend()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 400
+        mock_resp.text = "tool_use_failed"
+        mock_resp.json.return_value = {
+            "error": {
+                "code": "tool_use_failed",
+                "failed_generation": '<function=update_index{"date": "2026-01-01", "type": "feat", "title": "Test", "project": "myapp", "path": "features/test"}</function>',
+            }
+        }
+
+        with patch("requests.post", return_value=mock_resp):
+            result = backend.chat("sys", [], SAMPLE_TOOLS)
+
+        assert result.stop_reason == "tool_use"
+        assert len(result.tool_calls) == 1
+        assert result.tool_calls[0].name == "update_index"
+        assert result.tool_calls[0].arguments["type"] == "feat"
 
     # 31. 400 tool_use_failed with unparseable XML still raises RuntimeError
     def test_tool_use_failed_unparseable_raises(self, monkeypatch):
