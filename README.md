@@ -572,3 +572,4 @@ Pull requests welcome. Please:
 ## License
 
 [MIT](LICENSE) — © 2026 Vishesh Chaitanya
+
