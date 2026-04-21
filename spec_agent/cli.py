@@ -245,11 +245,12 @@ def configure(config):
     console.print("  [bold]anthropic[/bold]  Cloud — best quality, requires [yellow]ANTHROPIC_API_KEY[/yellow]")
     console.print("  [bold]ollama[/bold]     Local — free, runs on your machine (no API key)")
     console.print("  [bold]gemini[/bold]     Cloud — free tier available, requires [yellow]GEMINI_API_KEY[/yellow]")
-    console.print("  [bold]github[/bold]     Cloud — free tier (150 req/day), requires [yellow]GITHUB_TOKEN[/yellow]\n")
+    console.print("  [bold]github[/bold]     Cloud — free tier (150 req/day), requires [yellow]GITHUB_TOKEN[/yellow]")
+    console.print("  [bold]groq[/bold]       Cloud — free tier (1 000 req/day), requires [yellow]GROQ_API_KEY[/yellow]\n")
 
     backend = click.prompt(
         "Backend",
-        type=click.Choice(["anthropic", "ollama", "gemini", "github"]),
+        type=click.Choice(["anthropic", "ollama", "gemini", "github", "groq"]),
         default=cfg.llm_backend,
     )
 
@@ -323,6 +324,24 @@ def configure(config):
         console.print('[dim]  export GITHUB_TOKEN="github_pat_..."[/dim]')
         console.print('[dim]  echo \'export GITHUB_TOKEN="github_pat_..."\' >> ~/.zshrc[/dim]')
         console.print('\n[dim]A classic PAT with no scopes (or a fine-grained token with "Models" access) is sufficient.[/dim]')
+
+    elif backend == "groq":
+        console.print("\n[bold]Available Groq models (all support tool calling):[/bold]")
+        console.print("  llama-3.3-70b-versatile   — best quality, recommended (default)")
+        console.print("  llama-3.1-8b-instant      — faster, higher daily limits, less reliable for tools\n")
+        console.print(
+            "[yellow]Free tier limits (llama-3.3-70b-versatile):[/yellow] 1 000 req/day, 30 req/min, 12 000 TPM.\n"
+            "  Each git push uses ~4-6 requests. At 5 req/push, that's ~200 pushes/day.\n"
+            "  [bold]init-repo --deep[/bold] uses ~15-30 requests — well within the daily budget.\n"
+        )
+        model = click.prompt("Model", default=cfg.groq_model)
+        cfg.llm_backend = "groq"
+        cfg.groq_model = model
+        save_config(cfg, config_path)
+        console.print(f"\n[green]✓[/green] Config saved → backend: groq, model: {model}")
+        console.print("\n[bold]Set GROQ_API_KEY — get a free key at https://console.groq.com:[/bold]")
+        console.print('[dim]  export GROQ_API_KEY="gsk_..."[/dim]')
+        console.print('[dim]  echo \'export GROQ_API_KEY="gsk_..."\' >> ~/.zshrc[/dim]')
 
     console.print(
         f"\n[bold]Done.[/bold] Config lives at [dim]{config_path}[/dim] — "
