@@ -339,9 +339,13 @@ def configure(config):
         cfg.groq_model = model
         save_config(cfg, config_path)
         console.print(f"\n[green]✓[/green] Config saved → backend: groq, model: {model}")
-        console.print("\n[bold]Set GROQ_API_KEY — get a free key at https://console.groq.com:[/bold]")
-        console.print('[dim]  export GROQ_API_KEY="gsk_..."[/dim]')
-        console.print('[dim]  echo \'export GROQ_API_KEY="gsk_..."\' >> ~/.zshrc[/dim]')
+        console.print("\n[bold]Get your free GROQ_API_KEY (no credit card required):[/bold]")
+        console.print("[dim]  1. Sign up at https://console.groq.com (free account)[/dim]")
+        console.print("[dim]  2. Go to https://console.groq.com/keys → click [bold]Create API Key[/bold][/dim]")
+        console.print("[dim]  3. Copy the key (starts with gsk_) and set it:[/dim]")
+        console.print('[dim]       export GROQ_API_KEY="gsk_..."[/dim]')
+        console.print('[dim]       echo \'export GROQ_API_KEY="gsk_..."\' >> ~/.zshrc[/dim]')
+        console.print('\n[dim]Free tier is permanent — no trial period, no credit card.[/dim]')
 
     console.print(
         f"\n[bold]Done.[/bold] Config lives at [dim]{config_path}[/dim] — "
