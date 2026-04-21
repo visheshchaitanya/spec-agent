@@ -27,7 +27,7 @@ def _parse_llama_xml_tool_call(failed_generation: str) -> ToolCall | None:
     the raw generation so we can recover it.
     """
     match = re.search(
-        r"<function=(\w+)\s*(\[.*?\]|\{.*?\})",
+        r"<function=(\w+)\s*>?\s*(\[.*?\]|\{.*?\})",
         failed_generation,
         re.DOTALL,
     )

@@ -384,7 +384,15 @@ class TestParseLlamaXmlToolCall:
         assert tc.arguments["date"] == "2026-01-01"
         assert tc.arguments["type"] == "bug"
 
-    # 27. Parses array format: <function=name [{"key": "val"}]>
+    # 27. Parses format with > between name and JSON: <function=name>{"key": "val"}</function>
+    def test_parses_object_format_with_gt_separator(self):
+        raw = '<function=classify_commit>{"commit_message_prefix": "fix"}</function>'
+        tc = _parse_llama_xml_tool_call(raw)
+        assert tc is not None
+        assert tc.name == "classify_commit"
+        assert tc.arguments == {"commit_message_prefix": "fix"}
+
+    # 28. Parses array format: <function=name [{"key": "val"}]>
     def test_parses_array_format(self):
         raw = '<function=search_wiki [{"limit": 5, "query": "feat"}]></function>'
         tc = _parse_llama_xml_tool_call(raw)
