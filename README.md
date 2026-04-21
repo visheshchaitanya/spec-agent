@@ -35,7 +35,7 @@ The agent:
 
 - **Zero friction** — fires automatically on every `git push`, no developer action needed
 - **Cold-start KB bootstrap** — `spec-agent init-repo` scans an existing codebase and writes a structured knowledge base into the vault before any pushes have occurred
-- **Pluggable LLM backends** — use Anthropic (cloud), Ollama (local/free), Gemini (free tier), or GitHub Models (free tier, 150 req/day, `GITHUB_TOKEN`, no new dependencies)
+- **Pluggable LLM backends** — use Anthropic (cloud), Ollama (local/free), Gemini (free tier), GitHub Models (free tier, 150 req/day), or Groq (free tier, 1 000 req/day, `GROQ_API_KEY`, no new dependencies)
 - **Adaptive templates** — selects the right format based on commit type
   - `feature` → full spec (summary, problem, implementation, files, open questions)
   - `bug` → short report (root cause, fix applied)
@@ -59,6 +59,7 @@ The agent:
   - **Ollama** — free, runs locally; [download here](https://ollama.com/download)
   - **Gemini** — free tier available; [API key](https://aistudio.google.com) required
   - **GitHub Models** — free tier (150 req/day); `GITHUB_TOKEN` required; no extra dependencies
+  - **Groq** — free tier (1 000 req/day); `GROQ_API_KEY` required; no extra dependencies
 
 ---
 
@@ -115,6 +116,7 @@ Choose an LLM backend:
   ollama     Local — free, runs on your machine (no API key)
   gemini     Cloud — free tier available, requires GEMINI_API_KEY
   github     Cloud — free tier (150 req/day), requires GITHUB_TOKEN
+  groq       Cloud — free tier (1 000 req/day), requires GROQ_API_KEY
 
 Backend [anthropic]: ollama
 
@@ -157,6 +159,12 @@ export GITHUB_TOKEN="ghp_..."
 # Add to ~/.zshrc or ~/.bashrc to make permanent
 ```
 
+**Groq** (free tier — [console.groq.com](https://console.groq.com)):
+```bash
+export GROQ_API_KEY="gsk_..."
+# Add to ~/.zshrc or ~/.bashrc to make permanent
+```
+
 ### 3. Install the global git hook
 
 ```bash
@@ -187,6 +195,7 @@ git push
 | Backend | Cost | Quality | Setup |
 |---------|------|---------|-------|
 | `anthropic` | ~$0.003–0.015 / push | Best | `ANTHROPIC_API_KEY` |
+| `groq` | **Free** (1 000 req/day) | Very Good | `GROQ_API_KEY` — recommended free option |
 | `ollama` | Free (local compute) | Good (model-dependent) | Install Ollama + pull model |
 | `gemini` | Free tier / ~$0.001 | Good | `GEMINI_API_KEY` |
 | `github` | Free tier (150 req/day) | Good | `GITHUB_TOKEN` |
@@ -231,6 +240,18 @@ Ollama runs the model locally on your GPU/CPU — no data leaves your machine.
    Default model: `gpt-4o-mini`. Rate limit: 150 requests/day on the free tier.
 
 No additional packages are required — the backend uses the same `httpx` transport already installed with spec-agent.
+
+### Running with Groq (recommended free cloud option)
+
+1. Get a free API key at [console.groq.com](https://console.groq.com) (no credit card required)
+2. Configure:
+   ```bash
+   export GROQ_API_KEY="gsk_..."
+   spec-agent configure     # choose "groq"
+   ```
+   Default model: `llama-3.3-70b-versatile` (128k context, parallel tool calls). Rate limit: 1 000 req/day on the free tier — enough for ~200 pushes/day at 5 requests per push.
+
+No additional packages are required — the backend uses the `requests` library already installed with spec-agent.
 
 ---
 
