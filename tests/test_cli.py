@@ -126,6 +126,25 @@ class TestConfigure:
         assert "gemma3" in result.output
 
 
+def test_configure_groq_sets_backend_and_model(tmp_path):
+    from click.testing import CliRunner
+    from spec_agent.cli import cli
+    from spec_agent.config import load_config
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(f"vault_path: {tmp_path}/vault\n")
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["configure", "--config", str(config_path)],
+        input="groq\nllama-3.3-70b-versatile\n",
+    )
+    assert result.exit_code == 0, result.output
+    cfg = load_config(config_path)
+    assert cfg.llm_backend == "groq"
+    assert cfg.groq_model == "llama-3.3-70b-versatile"
+
+
 # ---------------------------------------------------------------------------
 # spec-agent config-get
 # ---------------------------------------------------------------------------

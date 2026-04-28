@@ -75,3 +75,8 @@ def test_is_branch_ignored(tmp_path):
     assert cfg.is_branch_ignored("renovate/update-deps") is True
     assert cfg.is_branch_ignored("main") is False
     assert cfg.is_branch_ignored("feature/my-work") is False
+
+
+def test_groq_model_defaults_to_llama():
+    cfg = Config(vault_path=Path("/tmp/vault"))
+    assert cfg.groq_model == "llama-3.3-70b-versatile"

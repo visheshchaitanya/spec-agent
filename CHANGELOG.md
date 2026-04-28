@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Groq LLM backend (`llm_backend: groq`) — free-tier cloud inference via `GROQ_API_KEY`, default model `llama-3.3-70b-versatile` (128k context, parallel tool calls supported); free tier: 1 000 req/day, 30 req/min, 12 000 TPM — no new dependencies (`requests` already required)
+
 ## [0.4.2] — 2026-04-18
 
 ### Added

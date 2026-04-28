@@ -20,6 +20,7 @@ class Config:
     ollama_model: str = "qwen2.5:7b"
     gemini_model: str = "gemini-2.0-flash"
     github_model: str = "gpt-4o-mini"
+    groq_model: str = "llama-3.3-70b-versatile"
 
     def is_repo_ignored(self, repo_name: str) -> bool:
         return repo_name in self.ignored_repos
@@ -40,6 +41,7 @@ def _defaults() -> dict:
         "ollama_model": "qwen2.5:7b",
         "gemini_model": "gemini-2.0-flash",
         "github_model": "gpt-4o-mini",
+        "groq_model": "llama-3.3-70b-versatile",
     }
 
 
@@ -59,6 +61,7 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> Config:
         ollama_model=data.get("ollama_model", "qwen2.5:7b"),
         gemini_model=data.get("gemini_model", "gemini-2.0-flash"),
         github_model=data.get("github_model", "gpt-4o-mini"),
+        groq_model=data.get("groq_model", "llama-3.3-70b-versatile"),
     )
 
 
@@ -76,4 +79,5 @@ def save_config(cfg: Config, config_path: Path = DEFAULT_CONFIG_PATH) -> None:
             "ollama_model": cfg.ollama_model,
             "gemini_model": cfg.gemini_model,
             "github_model": cfg.github_model,
+            "groq_model": cfg.groq_model,
         }, f, default_flow_style=False)
