@@ -269,6 +269,7 @@ def run_agent(
         )
 
         if response.stop_reason == "end_turn":
+            logger.debug("agent end_turn at iteration %d, response text: %r", iteration, response.text)
             break
 
         if response.stop_reason == "tool_use":
