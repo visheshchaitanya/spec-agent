@@ -18,6 +18,12 @@ from spec_agent.backends.base import (
 
 logger = logging.getLogger(__name__)
 
+_FORMAT_GUARD = (
+    "IMPORTANT: Use the structured tool_calls JSON format for all tool invocations. "
+    "Never emit XML function syntax like <function=name>{...}</function>. "
+    "Only respond with plain text when no tool call is needed.\n\n"
+)
+
 
 def _parse_llama_xml_tool_call(failed_generation: str) -> ToolCall | None:
     """Parse Llama-native XML tool call format from a Groq tool_use_failed error.
@@ -76,7 +82,7 @@ class GroqBackend(LLMBackend):
 
         payload: dict[str, Any] = {
             "model": self.model,
-            "messages": [{"role": "system", "content": system}, *messages],
+            "messages": [{"role": "system", "content": _FORMAT_GUARD + system}, *messages],
             "max_tokens": max_tokens,
         }
         if converted_tools:
