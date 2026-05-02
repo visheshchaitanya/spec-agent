@@ -7,8 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-05-02
+
 ### Added
-- Groq LLM backend (`llm_backend: groq`) — free-tier cloud inference via `GROQ_API_KEY`, default model `llama-3.3-70b-versatile` (128k context, parallel tool calls supported); free tier: 1 000 req/day, 30 req/min, 12 000 TPM — no new dependencies (`requests` already required)
+- Groq LLM backend (`llm_backend: groq`) — free-tier cloud inference via `GROQ_API_KEY`, default model `llama-3.3-70b-versatile` (128k context); free tier: 1 000 req/day, 30 req/min, 12 000 TPM
+- Interactive arrow-key `configure` menu via `questionary` (replaces text prompt)
+- Groq is now the default backend (`llm_backend: groq`)
+
+### Fixed
+- Groq: inject format guard into system prompt to prevent Llama XML tool call format
+- Groq: recover from `tool_use_failed` 400 errors via XML fallback parser (handles `<function=name{...}` with no separator)
+- Groq: retry with backoff on 429 rate limit errors
+- Groq: cap diff size per backend to avoid 413 token limit errors
+- Agent: force tool use in system prompt to prevent text-only responses
 
 ## [0.4.2] — 2026-04-18
 
