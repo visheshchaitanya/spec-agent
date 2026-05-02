@@ -61,6 +61,15 @@ class LLMBackend(ABC):
         """
 
     @property
+    def max_diff_chars(self) -> int:
+        """Max characters of git diff to include in the user message.
+
+        Default is generous (200 KB). Backends with strict TPM limits should
+        override this to a lower value.
+        """
+        return 200_000
+
+    @property
     def ast_budget_chars(self) -> int | None:
         """Max characters allowed for the AST block in the user message.
 

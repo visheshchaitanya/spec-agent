@@ -244,6 +244,7 @@ def run_agent(
                 exc_info=True,
             )
 
+    diff_cap = backend.max_diff_chars
     user_message = (
         "Classify this push as one of: feature | bug | refactor | arch | chore.\n"
         "Use the commit message prefix as the primary signal "
@@ -252,7 +253,7 @@ def run_agent(
         f"Branch: {branch}\n"
         "Commit messages:\n" + "\n".join(f"- {m}" for m in commit_messages) +
         f"{symbols_note}"
-        f"\n\nGit diff (truncated to 50,000 chars):\n```\n{diff[:50_000]}\n```"
+        f"\n\nGit diff (truncated to {diff_cap:,} chars):\n```\n{diff[:diff_cap]}\n```"
     )
 
     messages = [backend.make_user_message(user_message)]

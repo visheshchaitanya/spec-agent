@@ -63,6 +63,12 @@ class GroqBackend(LLMBackend):
     def __init__(self, model: str = "llama-3.3-70b-versatile") -> None:
         self.model = model
 
+    @property
+    def max_diff_chars(self) -> int:
+        # Groq free tier: 12K TPM. System prompt ~2K tokens, leaving ~8K for diff.
+        # 8K tokens × ~3.5 chars/token ≈ 28K chars.
+        return 28_000
+
     def chat(
         self,
         system: str,
