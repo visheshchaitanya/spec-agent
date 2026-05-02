@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import time
 import uuid
 from typing import Any
 
@@ -95,19 +96,28 @@ class GroqBackend(LLMBackend):
             payload["tools"] = converted_tools
             payload["parallel_tool_calls"] = False
 
-        resp = requests.post(
-            f"{self.BASE_URL}/chat/completions",
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            timeout=120,
-        )
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        _retry_delays = [10, 20, 40]
+        resp = None
+        for attempt, delay in enumerate([0] + _retry_delays):
+            if delay:
+                logger.warning("Groq rate limit hit, retrying in %ds (attempt %d/%d)...", delay, attempt, len(_retry_delays))
+                time.sleep(delay)
+            resp = requests.post(
+                f"{self.BASE_URL}/chat/completions",
+                json=payload,
+                headers=headers,
+                timeout=120,
+            )
+            if resp.status_code != 429:
+                break
 
         if resp.status_code == 429:
             raise RuntimeError(
-                "Groq rate limit exceeded. Free tier: 30 RPM / 1 000 RPD for llama-3.3-70b-versatile. "
+                "Groq rate limit exceeded after retries. Free tier: 30 RPM / 1 000 RPD for llama-3.3-70b-versatile. "
                 "See https://console.groq.com/docs/rate-limits for current limits."
             )
 
