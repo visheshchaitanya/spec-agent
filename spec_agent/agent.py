@@ -190,6 +190,8 @@ Rules:
 - Use [[wikilink]] syntax for pages found via search_wiki.
 - Stay grounded in the diff — do not invent features not present in the code.
 - Be thorough: specs should be detailed enough to be useful for future developers.
+- NEVER respond with plain text only. You MUST call tools. Do not describe what you will do — just do it by calling the appropriate tool immediately.
+- Your very first response MUST be a tool call to search_wiki, not a text classification.
 """
 
 _MAX_ITERATIONS = 20  # hard cap on tool-use loop iterations to prevent runaway loops
