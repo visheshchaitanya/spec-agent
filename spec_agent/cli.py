@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import click
+import questionary
 from rich.console import Console
 
 from spec_agent.agent import run_agent
@@ -245,21 +246,33 @@ def configure(config):
     cfg = load_config(config_path)
 
     console.print("[bold cyan]spec-agent configure[/bold cyan]\n")
-    console.print("Choose an LLM backend:\n")
-    console.print("  [bold]anthropic[/bold]  Cloud — best quality, requires [yellow]ANTHROPIC_API_KEY[/yellow]")
-    console.print("  [bold]ollama[/bold]     Local — free, runs on your machine (no API key)")
-    console.print("  [bold]gemini[/bold]     Cloud — free tier available, requires [yellow]GEMINI_API_KEY[/yellow]")
-    console.print("  [bold]github[/bold]     Cloud — free tier (150 req/day), requires [yellow]GITHUB_TOKEN[/yellow]")
-    console.print("  [bold]groq[/bold]       Cloud — free tier (1 000 req/day), requires [yellow]GROQ_API_KEY[/yellow]\n")
 
-    backend = click.prompt(
-        "Backend",
-        type=click.Choice(["anthropic", "ollama", "gemini", "github", "groq"]),
+    backend = questionary.select(
+        "Choose an LLM backend:",
+        choices=[
+            questionary.Choice("groq       — Cloud, free tier (1 000 req/day), recommended", value="groq"),
+            questionary.Choice("ollama     — Local, free, runs on your machine (no API key)", value="ollama"),
+            questionary.Choice("gemini     — Cloud, free tier available, requires GEMINI_API_KEY", value="gemini"),
+            questionary.Choice("github     — Cloud, free tier (150 req/day), requires GITHUB_TOKEN", value="github"),
+            questionary.Choice("anthropic  — Cloud, best quality, requires ANTHROPIC_API_KEY", value="anthropic"),
+        ],
         default=cfg.llm_backend,
-    )
+    ).ask()
+
+    if backend is None:
+        return
 
     if backend == "anthropic":
-        model = click.prompt("Model", default=cfg.model)
+        model = questionary.select(
+            "Choose a model:",
+            choices=[
+                questionary.Choice("claude-sonnet-4-6  — best quality, recommended", value="claude-sonnet-4-6"),
+                questionary.Choice("claude-haiku-4-5   — faster, lower cost", value="claude-haiku-4-5-20251001"),
+            ],
+            default=cfg.model if cfg.model in ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"] else "claude-sonnet-4-6",
+        ).ask()
+        if model is None:
+            return
         cfg.llm_backend = "anthropic"
         cfg.model = model
         save_config(cfg, config_path)
@@ -268,30 +281,39 @@ def configure(config):
         console.print('[dim]  export ANTHROPIC_API_KEY="sk-ant-..."[/dim]')
 
     elif backend == "ollama":
-        console.print("\n[bold]Popular Ollama models:[/bold]")
-        console.print("  qwen2.5:7b   — fast, good reasoning, ~4 GB")
-        console.print("  qwen2.5:14b  — better quality, ~8 GB")
-        console.print("  gemma3       — Google Gemma 3 (12B), ~7 GB")
-        console.print("  llama3.2     — Meta Llama 3.2, ~2 GB")
-        console.print("  mistral      — Mistral 7B, ~4 GB\n")
-        url = click.prompt("Ollama server URL", default=cfg.ollama_url)
-        model = click.prompt("Model name", default=cfg.ollama_model)
+        model = questionary.select(
+            "Choose a model:",
+            choices=[
+                questionary.Choice("qwen2.5:7b   — fast, good reasoning, ~4 GB", value="qwen2.5:7b"),
+                questionary.Choice("qwen2.5:14b  — better quality, ~8 GB", value="qwen2.5:14b"),
+                questionary.Choice("gemma3       — Google Gemma 3 (12B), ~7 GB", value="gemma3"),
+                questionary.Choice("llama3.2     — Meta Llama 3.2, ~2 GB", value="llama3.2"),
+                questionary.Choice("mistral      — Mistral 7B, ~4 GB", value="mistral"),
+            ],
+            default=cfg.ollama_model if cfg.ollama_model in ["qwen2.5:7b", "qwen2.5:14b", "gemma3", "llama3.2", "mistral"] else "qwen2.5:7b",
+        ).ask()
+        if model is None:
+            return
         cfg.llm_backend = "ollama"
-        cfg.ollama_url = url
         cfg.ollama_model = model
         save_config(cfg, config_path)
-        console.print(f"\n[green]✓[/green] Config saved → backend: ollama, model: {model}, url: {url}")
+        console.print(f"\n[green]✓[/green] Config saved → backend: ollama, model: {model}")
         console.print("\n[bold]To install Ollama and pull the model:[/bold]")
-        console.print(f"[dim]  # 1. Install Ollama: https://ollama.com/download[/dim]")
+        console.print("[dim]  # 1. Install Ollama: https://ollama.com/download[/dim]")
         console.print(f"[dim]  # 2. Pull your chosen model:  ollama pull {model}[/dim]")
         console.print("\n[dim]Ollama starts automatically after install. To verify: ollama list[/dim]")
 
     elif backend == "gemini":
-        console.print("\n[bold]Available Gemini models:[/bold]")
-        console.print("  gemini-2.0-flash   — fast, free tier, recommended")
-        console.print("  gemini-2.5-pro     — best quality, paid")
-        console.print("[dim]  Note: Gemma models (e.g. gemma-3-27b-it) do not support function calling and cannot be used with spec-agent.[/dim]\n")
-        model = click.prompt("Model", default=cfg.gemini_model)
+        model = questionary.select(
+            "Choose a model:",
+            choices=[
+                questionary.Choice("gemini-2.0-flash  — fast, free tier, recommended", value="gemini-2.0-flash"),
+                questionary.Choice("gemini-2.5-pro    — best quality, paid", value="gemini-2.5-pro"),
+            ],
+            default=cfg.gemini_model if cfg.gemini_model in ["gemini-2.0-flash", "gemini-2.5-pro"] else "gemini-2.0-flash",
+        ).ask()
+        if model is None:
+            return
         cfg.llm_backend = "gemini"
         cfg.gemini_model = model
         save_config(cfg, config_path)
@@ -309,46 +331,53 @@ def configure(config):
         console.print('[dim]  echo \'export GEMINI_API_KEY="AIza..."\' >> ~/.zshrc[/dim]')
 
     elif backend == "github":
-        console.print("\n[bold]Available GitHub Models (gpt family recommended for tool use):[/bold]")
-        console.print("  gpt-4o-mini   — fast, free tier, recommended (default)")
-        console.print("  gpt-4o        — higher quality, still free tier\n")
-        console.print("[dim]  Note: Only gpt-family models support tool calling. Reasoning models (o1, o3) do not and cannot be used with spec-agent.[/dim]\n")
-        console.print(
-            "[yellow]Rate limit:[/yellow] 150 requests/day on the free tier.\n"
-            "  Each git push uses ~4-5 requests (feature/bug) or 1 (chore).\n"
-            "  At 5 req/push this allows ~30 pushes/day before hitting the limit.\n"
-            "  [bold]init-repo --deep[/bold] uses ~30 requests — may exhaust the daily budget in one run.\n"
-        )
-        model = click.prompt("Model", default=cfg.github_model)
+        model = questionary.select(
+            "Choose a model:",
+            choices=[
+                questionary.Choice("gpt-4o-mini  — fast, free tier, recommended", value="gpt-4o-mini"),
+                questionary.Choice("gpt-4o       — higher quality, still free tier", value="gpt-4o"),
+            ],
+            default=cfg.github_model if cfg.github_model in ["gpt-4o-mini", "gpt-4o"] else "gpt-4o-mini",
+        ).ask()
+        if model is None:
+            return
         cfg.llm_backend = "github"
         cfg.github_model = model
         save_config(cfg, config_path)
         console.print(f"\n[green]✓[/green] Config saved → backend: github, model: {model}")
+        console.print(
+            "\n[yellow]Rate limit:[/yellow] 150 requests/day on the free tier.\n"
+            "  Each git push uses ~4-5 requests. [bold]init-repo --deep[/bold] uses ~30.\n"
+        )
         console.print("\n[bold]Set GITHUB_TOKEN — generate at https://github.com/settings/tokens:[/bold]")
         console.print('[dim]  export GITHUB_TOKEN="github_pat_..."[/dim]')
         console.print('[dim]  echo \'export GITHUB_TOKEN="github_pat_..."\' >> ~/.zshrc[/dim]')
         console.print('\n[dim]A classic PAT with no scopes (or a fine-grained token with "Models" access) is sufficient.[/dim]')
 
     elif backend == "groq":
-        console.print("\n[bold]Available Groq models (all support tool calling):[/bold]")
-        console.print("  llama-3.3-70b-versatile   — best quality, recommended (default)")
-        console.print("  llama-3.1-8b-instant      — faster, higher daily limits, less reliable for tools\n")
-        console.print(
-            "[yellow]Free tier limits (llama-3.3-70b-versatile):[/yellow] 1 000 req/day, 30 req/min, 12 000 TPM.\n"
-            "  Each git push uses ~4-6 requests. At 5 req/push, that's ~200 pushes/day.\n"
-            "  [bold]init-repo --deep[/bold] uses ~15-30 requests — well within the daily budget.\n"
-        )
-        model = click.prompt("Model", default=cfg.groq_model)
+        model = questionary.select(
+            "Choose a model:",
+            choices=[
+                questionary.Choice("llama-3.3-70b-versatile  — best quality, recommended", value="llama-3.3-70b-versatile"),
+                questionary.Choice("llama-3.1-8b-instant     — faster, higher daily limits", value="llama-3.1-8b-instant"),
+            ],
+            default=cfg.groq_model if cfg.groq_model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"] else "llama-3.3-70b-versatile",
+        ).ask()
+        if model is None:
+            return
         cfg.llm_backend = "groq"
         cfg.groq_model = model
         save_config(cfg, config_path)
         console.print(f"\n[green]✓[/green] Config saved → backend: groq, model: {model}")
+        console.print(
+            "\n[yellow]Free tier limits (llama-3.3-70b-versatile):[/yellow] 1 000 req/day, 30 req/min, 12 000 TPM.\n"
+            "  Each git push uses ~4-6 requests (~200 pushes/day free).\n"
+        )
         console.print("\n[bold]Get your free GROQ_API_KEY (no credit card required):[/bold]")
         console.print("[dim]  1. Sign up at https://console.groq.com (free account)[/dim]")
-        console.print("[dim]  2. Go to https://console.groq.com/keys → click [bold]Create API Key[/bold][/dim]")
-        console.print("[dim]  3. Copy the key (starts with gsk_) and set it:[/dim]")
-        console.print('[dim]       export GROQ_API_KEY="gsk_..."[/dim]')
-        console.print('[dim]       echo \'export GROQ_API_KEY="gsk_..."\' >> ~/.zshrc[/dim]')
+        console.print("[dim]  2. Go to https://console.groq.com/keys → click Create API Key[/dim]")
+        console.print('[dim]  3. export GROQ_API_KEY="gsk_..."[/dim]')
+        console.print('[dim]     echo \'export GROQ_API_KEY="gsk_..."\' >> ~/.zshrc[/dim]')
         console.print('\n[dim]Free tier is permanent — no trial period, no credit card.[/dim]')
 
     console.print(

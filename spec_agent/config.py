@@ -15,7 +15,7 @@ class Config:
     ignored_branches: list[str] = field(default_factory=lambda: ["dependabot/*", "renovate/*"])
     min_commit_chars: int = 50
     # LLM backend selection
-    llm_backend: str = "anthropic"  # "anthropic" | "ollama" | "gemini" | "github"
+    llm_backend: str = "groq"  # "anthropic" | "ollama" | "gemini" | "github" | "groq"
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:7b"
     gemini_model: str = "gemini-2.0-flash"
@@ -36,7 +36,7 @@ def _defaults() -> dict:
         "ignored_repos": [],
         "ignored_branches": ["dependabot/*", "renovate/*"],
         "min_commit_chars": 50,
-        "llm_backend": "anthropic",
+        "llm_backend": "groq",
         "ollama_url": "http://localhost:11434",
         "ollama_model": "qwen2.5:7b",
         "gemini_model": "gemini-2.0-flash",
