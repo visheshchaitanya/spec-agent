@@ -273,7 +273,8 @@ class TestGroqBackend:
             backend.chat("my system prompt", [{"role": "user", "content": "hi"}], [])
 
         payload = mock_post.call_args[1]["json"]
-        assert payload["messages"][0] == {"role": "system", "content": "my system prompt"}
+        from spec_agent.backends.groq_backend import _FORMAT_GUARD
+        assert payload["messages"][0] == {"role": "system", "content": _FORMAT_GUARD + "my system prompt"}
 
     # 17. Bearer token is sent in Authorization header
     def test_bearer_header_sent(self):

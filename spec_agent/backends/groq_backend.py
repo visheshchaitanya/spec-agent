@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import time
 import uuid
 from typing import Any
 
@@ -18,6 +19,13 @@ from spec_agent.backends.base import (
 
 logger = logging.getLogger(__name__)
 
+_FORMAT_GUARD = (
+    "IMPORTANT: You MUST use the OpenAI tool_calls JSON format for ALL tool invocations. "
+    "NEVER emit XML or any variant like <function=name>, <function=name={...}>, or <tool_call>. "
+    "These formats are INVALID and will cause an error. "
+    "Only respond with plain text when no tool call is needed.\n\n"
+)
+
 
 def _parse_llama_xml_tool_call(failed_generation: str) -> ToolCall | None:
     """Parse Llama-native XML tool call format from a Groq tool_use_failed error.
@@ -27,7 +35,7 @@ def _parse_llama_xml_tool_call(failed_generation: str) -> ToolCall | None:
     the raw generation so we can recover it.
     """
     match = re.search(
-        r"<function=(\w+)\s*>?\s*(\[.*?\]|\{.*?\})",
+        r"<function=(\w+)[=\s>]*(\{.*?\}|\[.*?\])",
         failed_generation,
         re.DOTALL,
     )
@@ -57,6 +65,12 @@ class GroqBackend(LLMBackend):
     def __init__(self, model: str = "llama-3.3-70b-versatile") -> None:
         self.model = model
 
+    @property
+    def max_diff_chars(self) -> int:
+        # Groq free tier: 12K TPM. System prompt ~2K tokens, leaving ~8K for diff.
+        # 8K tokens × ~3.5 chars/token ≈ 28K chars.
+        return 28_000
+
     def chat(
         self,
         system: str,
@@ -76,26 +90,35 @@ class GroqBackend(LLMBackend):
 
         payload: dict[str, Any] = {
             "model": self.model,
-            "messages": [{"role": "system", "content": system}, *messages],
+            "messages": [{"role": "system", "content": _FORMAT_GUARD + system}, *messages],
             "max_tokens": max_tokens,
         }
         if converted_tools:
             payload["tools"] = converted_tools
             payload["parallel_tool_calls"] = False
 
-        resp = requests.post(
-            f"{self.BASE_URL}/chat/completions",
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            timeout=120,
-        )
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        _retry_delays = [10, 20, 40]
+        resp = None
+        for attempt, delay in enumerate([0] + _retry_delays):
+            if delay:
+                logger.warning("Groq rate limit hit, retrying in %ds (attempt %d/%d)...", delay, attempt, len(_retry_delays))
+                time.sleep(delay)
+            resp = requests.post(
+                f"{self.BASE_URL}/chat/completions",
+                json=payload,
+                headers=headers,
+                timeout=120,
+            )
+            if resp.status_code != 429:
+                break
 
         if resp.status_code == 429:
             raise RuntimeError(
-                "Groq rate limit exceeded. Free tier: 30 RPM / 1 000 RPD for llama-3.3-70b-versatile. "
+                "Groq rate limit exceeded after retries. Free tier: 30 RPM / 1 000 RPD for llama-3.3-70b-versatile. "
                 "See https://console.groq.com/docs/rate-limits for current limits."
             )
 

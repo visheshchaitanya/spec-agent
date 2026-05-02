@@ -190,6 +190,8 @@ Rules:
 - Use [[wikilink]] syntax for pages found via search_wiki.
 - Stay grounded in the diff — do not invent features not present in the code.
 - Be thorough: specs should be detailed enough to be useful for future developers.
+- NEVER respond with plain text only. You MUST call tools. Do not describe what you will do — just do it by calling the appropriate tool immediately.
+- Your very first response MUST be a tool call to search_wiki, not a text classification.
 """
 
 _MAX_ITERATIONS = 20  # hard cap on tool-use loop iterations to prevent runaway loops
@@ -244,6 +246,7 @@ def run_agent(
                 exc_info=True,
             )
 
+    diff_cap = backend.max_diff_chars
     user_message = (
         "Classify this push as one of: feature | bug | refactor | arch | chore.\n"
         "Use the commit message prefix as the primary signal "
@@ -252,7 +255,7 @@ def run_agent(
         f"Branch: {branch}\n"
         "Commit messages:\n" + "\n".join(f"- {m}" for m in commit_messages) +
         f"{symbols_note}"
-        f"\n\nGit diff (truncated to 50,000 chars):\n```\n{diff[:50_000]}\n```"
+        f"\n\nGit diff (truncated to {diff_cap:,} chars):\n```\n{diff[:diff_cap]}\n```"
     )
 
     messages = [backend.make_user_message(user_message)]
@@ -268,6 +271,7 @@ def run_agent(
         )
 
         if response.stop_reason == "end_turn":
+            logger.debug("agent end_turn at iteration %d, response text: %r", iteration, response.text)
             break
 
         if response.stop_reason == "tool_use":

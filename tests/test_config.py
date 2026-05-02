@@ -12,7 +12,7 @@ def test_load_config_defaults(tmp_path):
     assert cfg.ignored_repos == []
     assert cfg.ignored_branches == ["dependabot/*", "renovate/*"]
     assert cfg.min_commit_chars == 50
-    assert cfg.llm_backend == "anthropic"
+    assert cfg.llm_backend == "groq"
     assert cfg.ollama_url == "http://localhost:11434"
     assert cfg.ollama_model == "qwen2.5:7b"
     assert cfg.gemini_model == "gemini-2.0-flash"
