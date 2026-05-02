@@ -64,6 +64,7 @@ def test_agent_runs_to_completion(cfg, vault_dir):
             return _make_end_turn_response("Done.")
 
     mock_backend = MagicMock()
+    mock_backend.max_diff_chars = 10_000
     mock_backend.chat.side_effect = fake_chat
     mock_backend.make_user_message.side_effect = lambda c: {"role": "user", "content": c}
     mock_backend.make_tool_results_messages.return_value = [{"role": "tool", "content": "ok"}]
@@ -100,6 +101,7 @@ def test_agent_skips_chore_commits(cfg):
 def test_agent_exits_on_unexpected_stop_reason(cfg):
     """Agent breaks out of loop cleanly on unexpected stop_reason."""
     mock_backend = MagicMock()
+    mock_backend.max_diff_chars = 10_000
     mock_backend.chat.return_value = _make_unknown_stop_response()
     mock_backend.make_user_message.side_effect = lambda c: {"role": "user", "content": c}
 
@@ -118,6 +120,7 @@ def test_agent_exits_on_unexpected_stop_reason(cfg):
 def test_agent_respects_max_iterations_cap(cfg):
     """Agent halts after _MAX_ITERATIONS even if always returning tool_use."""
     mock_backend = MagicMock()
+    mock_backend.max_diff_chars = 10_000
     mock_backend.chat.return_value = _make_tool_use_response("search_wiki", {"query": "foo"})
     mock_backend.make_user_message.side_effect = lambda c: {"role": "user", "content": c}
     mock_backend.make_tool_results_messages.return_value = [{"role": "tool", "content": "[]"}]
@@ -146,6 +149,7 @@ def test_agent_dispatches_unknown_tool_gracefully(cfg, vault_dir):
         return _make_end_turn_response()
 
     mock_backend = MagicMock()
+    mock_backend.max_diff_chars = 10_000
     mock_backend.chat.side_effect = fake_chat
     mock_backend.make_user_message.side_effect = lambda c: {"role": "user", "content": c}
     mock_backend.make_tool_results_messages.return_value = [{"role": "tool", "content": '{"error": "Unknown tool: nonexistent_tool"}'}]
@@ -177,6 +181,7 @@ def test_run_agent_injects_changed_symbols(cfg, vault_dir, mocker):
         return {"role": "user", "content": content}
 
     mock_backend = MagicMock()
+    mock_backend.max_diff_chars = 10_000
     mock_backend.chat.return_value = _make_end_turn_response()
     mock_backend.make_user_message.side_effect = fake_make_user_message
 
@@ -202,6 +207,7 @@ def test_run_agent_symbols_extraction_failure_does_not_raise(cfg, vault_dir, moc
         return {"role": "user", "content": content}
 
     mock_backend = MagicMock()
+    mock_backend.max_diff_chars = 10_000
     mock_backend.chat.return_value = _make_end_turn_response()
     mock_backend.make_user_message.side_effect = fake_make_user_message
 

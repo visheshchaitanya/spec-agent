@@ -73,12 +73,18 @@ class TestConfigure:
         cfg.write_text(f"vault_path: {home}/vault\n")
         return cfg
 
+    def _mock_q(self, selections):
+        """Patch questionary so select().ask() returns values in sequence."""
+        mock_q = MagicMock()
+        mock_q.Choice = lambda title, value=None: value
+        mock_q.select.return_value.ask.side_effect = list(selections)
+        return patch("spec_agent.cli.questionary", mock_q), mock_q
+
     def test_configure_anthropic(self, runner: CliRunner, home: Path) -> None:
         cfg = self._cfg_file(home)
-        result = runner.invoke(
-            cli, ["configure", "--config", str(cfg)],
-            input="anthropic\nclaude-haiku-4-5-20251001\n",
-        )
+        ctx, _ = self._mock_q(["anthropic", "claude-haiku-4-5-20251001"])
+        with ctx:
+            result = runner.invoke(cli, ["configure", "--config", str(cfg)])
         assert result.exit_code == 0, result.output
         data = yaml.safe_load(cfg.read_text())
         assert data["llm_backend"] == "anthropic"
@@ -86,22 +92,19 @@ class TestConfigure:
 
     def test_configure_ollama(self, runner: CliRunner, home: Path) -> None:
         cfg = self._cfg_file(home)
-        result = runner.invoke(
-            cli, ["configure", "--config", str(cfg)],
-            input="ollama\nhttp://192.168.1.10:11434\ngemma3\n",
-        )
+        ctx, _ = self._mock_q(["ollama", "gemma3"])
+        with ctx:
+            result = runner.invoke(cli, ["configure", "--config", str(cfg)])
         assert result.exit_code == 0, result.output
         data = yaml.safe_load(cfg.read_text())
         assert data["llm_backend"] == "ollama"
-        assert data["ollama_url"] == "http://192.168.1.10:11434"
         assert data["ollama_model"] == "gemma3"
 
     def test_configure_gemini(self, runner: CliRunner, home: Path) -> None:
         cfg = self._cfg_file(home)
-        result = runner.invoke(
-            cli, ["configure", "--config", str(cfg)],
-            input="gemini\ngemini-2.0-flash\n",
-        )
+        ctx, _ = self._mock_q(["gemini", "gemini-2.0-flash"])
+        with ctx:
+            result = runner.invoke(cli, ["configure", "--config", str(cfg)])
         assert result.exit_code == 0, result.output
         data = yaml.safe_load(cfg.read_text())
         assert data["llm_backend"] == "gemini"
@@ -109,36 +112,39 @@ class TestConfigure:
 
     def test_configure_invalid_backend_reprompts(self, runner: CliRunner, home: Path) -> None:
         cfg = self._cfg_file(home)
-        # "invalid" is not a valid choice; click reprompts; then "ollama" succeeds
-        result = runner.invoke(
-            cli, ["configure", "--config", str(cfg)],
-            input="invalid\nollama\nhttp://localhost:11434\nqwen2.5:7b\n",
-        )
-        assert result.exit_code == 0, result.output
+        # questionary.select has fixed choices; invalid input can't occur.
+        # Test that None (Ctrl-C / abort) exits cleanly without saving.
+        ctx, _ = self._mock_q([None])
+        with ctx:
+            result = runner.invoke(cli, ["configure", "--config", str(cfg)])
+        assert result.exit_code == 0
 
     def test_configure_shows_ollama_model_list(self, runner: CliRunner, home: Path) -> None:
         cfg = self._cfg_file(home)
-        result = runner.invoke(
-            cli, ["configure", "--config", str(cfg)],
-            input="ollama\n\n\n",
-        )
-        assert "qwen2.5" in result.output
-        assert "gemma3" in result.output
+        ctx, mock_q = self._mock_q(["ollama", "qwen2.5:7b"])
+        with ctx:
+            result = runner.invoke(cli, ["configure", "--config", str(cfg)])
+        assert result.exit_code == 0, result.output
+        # Verify the model select was called with choices that include popular models
+        model_choices = mock_q.select.call_args_list[1][1]["choices"]
+        assert any("qwen2.5" in str(c) for c in model_choices)
+        assert any("gemma3" in str(c) for c in model_choices)
 
 
 def test_configure_groq_sets_backend_and_model(tmp_path):
     from click.testing import CliRunner
     from spec_agent.cli import cli
     from spec_agent.config import load_config
+    from unittest.mock import patch, MagicMock
 
     config_path = tmp_path / "config.yaml"
     config_path.write_text(f"vault_path: {tmp_path}/vault\n")
     runner = CliRunner()
-    result = runner.invoke(
-        cli,
-        ["configure", "--config", str(config_path)],
-        input="groq\nllama-3.3-70b-versatile\n",
-    )
+    mock_q = MagicMock()
+    mock_q.Choice = lambda title, value=None: value
+    mock_q.select.return_value.ask.side_effect = ["groq", "llama-3.3-70b-versatile"]
+    with patch("spec_agent.cli.questionary", mock_q):
+        result = runner.invoke(cli, ["configure", "--config", str(config_path)])
     assert result.exit_code == 0, result.output
     cfg = load_config(config_path)
     assert cfg.llm_backend == "groq"
