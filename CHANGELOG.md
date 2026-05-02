@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-05-02
+
+### Fixed
+- Hook no longer exits silently when `~/.zshrc` contains `exec` or `exit` calls (common in zsh configs). Shell profiles are now sourced in a bash subprocess so exec/exit cannot kill the hook process; exported vars are imported back via `eval "$(bash -c '...; export -p')"`. Previously, sourcing `.zshrc` inline caused the entire pre-push hook to terminate before calling `spec-agent run`.
+
 ## [0.5.0] — 2026-05-02
 
 ### Added

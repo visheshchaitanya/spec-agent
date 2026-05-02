@@ -39,14 +39,20 @@ _HOOK_SCRIPT = """\
 
 set -euo pipefail
 
-# Load user shell profile so API keys (e.g. GROQ_API_KEY) are available
-# Temporarily disable set -e so zsh-specific lines don't abort sourcing
-set +e
-# shellcheck disable=SC1090
-[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null
-[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null
-[ -f "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null
-set -e
+# Load API keys from shell profiles safely.
+# Each profile is sourced inside a bash subprocess so that exec/exit calls
+# (common in zsh configs) cannot terminate this hook script.
+# export -p dumps the resulting env; eval imports it into the current shell.
+_import_env() {
+    local _f="$1"
+    [ -f "$_f" ] || return 0
+    # shellcheck disable=SC1090
+    eval "$(bash --norc --noprofile -c "source '$_f' 2>/dev/null; export -p" 2>/dev/null)" 2>/dev/null || true
+}
+_import_env "$HOME/.profile"
+_import_env "$HOME/.bashrc"
+_import_env "$HOME/.zshrc"
+unset -f _import_env
 
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
