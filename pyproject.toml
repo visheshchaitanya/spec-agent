@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spec-agent"
-version = "0.6.0"
+version = "0.6.1"
 description = "Auto-generate an Obsidian knowledge wiki from every git push, powered by Claude"
 readme = "README.md"
 license = { text = "MIT" }
