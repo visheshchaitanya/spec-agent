@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- SHA-based deduplication: `spec-agent run` now accepts `--sha` and skips processing if that commit SHA was already handled (cache at `~/.spec-agent/cache/processed_shas.txt`, capped at 500 entries)
+- Chore pre-filter: pushes where all commit messages match `chore|docs|ci|test|style` are skipped before any LLM call
+- `update_index` is now automatic: `write_wiki_file` (mode=create) parses frontmatter and updates `index.md` without a separate LLM tool call
+
+### Changed
+- Agent tool-use loop cap reduced from 20 → 6 iterations
+- System prompt now instructs the agent to call `search_wiki` exactly once (was "as many queries as needed")
+- `update_index` removed from agent `TOOL_DEFINITIONS` — LLM no longer needs to call it explicitly
+- Hook script passes `--sha "$LOCAL_SHA"` to `spec-agent run`
+
 ## [0.5.1] — 2026-05-02
 
 ### Fixed

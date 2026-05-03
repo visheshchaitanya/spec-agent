@@ -43,8 +43,12 @@ def _make_unknown_stop_response() -> ChatResponse:
 # ---------------------------------------------------------------------------
 
 def test_agent_runs_to_completion(cfg, vault_dir):
-    """Agent makes tool calls then exits when stop_reason is end_turn."""
+    """Agent writes spec then exits; index.md is updated automatically from frontmatter."""
     call_count = 0
+    spec_content = (
+        "---\ntype: bug\nproject: my-app\ndate: 2026-04-07\n---\n"
+        "# Fix auth\n\n## Root cause\nToken expired."
+    )
 
     def fake_chat(**kwargs):
         nonlocal call_count
@@ -52,14 +56,9 @@ def test_agent_runs_to_completion(cfg, vault_dir):
         if call_count == 1:
             return _make_tool_use_response("write_wiki_file", {
                 "path": "bugs/fix-auth.md",
-                "content": "# Fix auth\n\n## Root cause\nToken expired.",
+                "content": spec_content,
                 "mode": "create",
             }, tool_id="tc_001")
-        elif call_count == 2:
-            return _make_tool_use_response("update_index", {
-                "date": "2026-04-07", "type": "bug", "title": "Fix auth",
-                "project": "my-app", "path": "bugs/fix-auth",
-            }, tool_id="tc_002")
         else:
             return _make_end_turn_response("Done.")
 
@@ -78,7 +77,7 @@ def test_agent_runs_to_completion(cfg, vault_dir):
             cfg=cfg,
         )
 
-    assert call_count == 3
+    assert call_count == 2
     assert (vault_dir / "bugs" / "fix-auth.md").exists()
     index = (vault_dir / "index.md").read_text()
     assert "Fix auth" in index

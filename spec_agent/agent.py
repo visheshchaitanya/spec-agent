@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import logging
+import re
 from spec_agent.config import Config
 from spec_agent.backends.factory import get_backend
 from spec_agent.tools.wiki_read import read_wiki_file
@@ -58,21 +59,6 @@ TOOL_DEFINITIONS = [
             "required": ["path", "content"],
         },
     },
-    {
-        "name": "update_index",
-        "description": "Append an entry to index.md — the master log. Call this after writing the spec file.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "date": {"type": "string", "description": "ISO date, e.g. 2026-04-07"},
-                "type": {"type": "string", "enum": ["feature", "bug", "refactor", "arch", "chore", "concept", "project"]},
-                "title": {"type": "string"},
-                "project": {"type": "string"},
-                "path": {"type": "string", "description": "Vault path without .md, e.g. features/auth"},
-            },
-            "required": ["date", "type", "title", "project", "path"],
-        },
-    },
 ]
 
 _SYSTEM_PROMPT = """You are a spec-writing agent that documents git changes in an Obsidian vault.
@@ -86,8 +72,7 @@ Given a git diff and commit messages, follow these steps precisely:
    - chore / docs / ci / test / style  →  STOP immediately, no spec needed.
    - Unknown prefix  →  infer from the diff content.
 
-2. Search the wiki for related pages. Run as many queries as needed to find
-   relevant existing pages and concepts to link to.
+2. Call search_wiki exactly once to find related pages to link to.
 
 3. Read at most 1 existing page if you intend to update it (skip if creating new).
 
@@ -184,8 +169,6 @@ date: {{date}}
 - {{date}}: initial spec
 ```
 
-5. Call update_index after writing the spec. Use the vault path without the .md extension.
-
 Rules:
 - Use [[wikilink]] syntax for pages found via search_wiki.
 - Stay grounded in the diff — do not invent features not present in the code.
@@ -194,7 +177,28 @@ Rules:
 - Your very first response MUST be a tool call to search_wiki, not a text classification.
 """
 
-_MAX_ITERATIONS = 20  # hard cap on tool-use loop iterations to prevent runaway loops
+_MAX_ITERATIONS = 6  # hard cap on tool-use loop iterations to prevent runaway loops
+
+_FM_KEY_RE = re.compile(r'^(\w+):\s*(.+)', re.MULTILINE)
+_H1_RE = re.compile(r'^# (.+)', re.MULTILINE)
+
+
+def _auto_update_index(vault_path: str, content: str, path: str) -> None:
+    """Parse frontmatter from a newly-created spec and append a row to index.md."""
+    fm_match = re.search(r'^---\n(.*?)\n---', content, re.DOTALL)
+    if not fm_match:
+        return
+    fm = {m.group(1): m.group(2).strip() for m in _FM_KEY_RE.finditer(fm_match.group(1))}
+    h1 = _H1_RE.search(content)
+    entry = {
+        "date": fm.get("date", ""),
+        "type": fm.get("type", ""),
+        "title": h1.group(1).strip() if h1 else path.split("/")[-1],
+        "project": fm.get("project", ""),
+        "path": path.removesuffix(".md"),
+    }
+    if entry["date"] and entry["type"]:
+        update_index(vault_path, entry)
 
 
 def _dispatch_tool(name: str, tool_input: dict, vault_path: str) -> str:
@@ -204,12 +208,11 @@ def _dispatch_tool(name: str, tool_input: dict, vault_path: str) -> str:
     elif name == "read_wiki_file":
         return json.dumps(read_wiki_file(vault_path, tool_input["path"]))
     elif name == "write_wiki_file":
-        return json.dumps(write_wiki_file(
-            vault_path, tool_input["path"], tool_input["content"],
-            mode=tool_input.get("mode", "create")
-        ))
-    elif name == "update_index":
-        return json.dumps(update_index(vault_path, tool_input))
+        mode = tool_input.get("mode", "create")
+        result = write_wiki_file(vault_path, tool_input["path"], tool_input["content"], mode=mode)
+        if result["success"] and mode == "create":
+            _auto_update_index(vault_path, tool_input["content"], tool_input["path"])
+        return json.dumps(result)
     else:
         return json.dumps({"error": f"Unknown tool: {name}"})
 

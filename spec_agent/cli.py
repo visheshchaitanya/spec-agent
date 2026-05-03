@@ -2,6 +2,7 @@ from __future__ import annotations
 import logging
 import logging.handlers
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,24 @@ from spec_agent.tools.init_cache import get_changed_files, save_cache
 console = Console()
 
 LOG_PATH = Path.home() / ".spec-agent" / "spec-agent.log"
+_SHA_CACHE_PATH = Path.home() / ".spec-agent" / "cache" / "processed_shas.txt"
+_SHA_CACHE_MAX = 500
+_CHORE_RE = re.compile(r'^(chore|docs|ci|test|style)(\(|!|:|\s|$)', re.IGNORECASE)
+
+
+def _is_sha_cached(sha: str) -> bool:
+    if not sha or not _SHA_CACHE_PATH.exists():
+        return False
+    return sha in _SHA_CACHE_PATH.read_text(encoding="utf-8").splitlines()
+
+
+def _cache_sha(sha: str) -> None:
+    if not sha:
+        return
+    _SHA_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    existing = _SHA_CACHE_PATH.read_text(encoding="utf-8").splitlines() if _SHA_CACHE_PATH.exists() else []
+    lines = existing + [sha]
+    _SHA_CACHE_PATH.write_text("\n".join(lines[-_SHA_CACHE_MAX:]) + "\n", encoding="utf-8")
 
 
 def _setup_logging() -> None:
@@ -91,7 +110,8 @@ spec-agent run \\
     --repo "$REPO_NAME" \\
     --branch "$BRANCH" \\
     --messages "$COMMITS" \\
-    --diff-file "$DIFF_FILE" >> /tmp/spec-agent-hook.log 2>&1 &
+    --diff-file "$DIFF_FILE" \\
+    --sha "$LOCAL_SHA" >> /tmp/spec-agent-hook.log 2>&1 &
 disown $!
 
 exit 0
@@ -120,8 +140,9 @@ def cli():
 @click.option("--branch", required=True, help="Branch that was pushed")
 @click.option("--messages", required=True, help="Newline-separated commit messages")
 @click.option("--diff-file", required=True, help="Path to temp file containing the git diff")
+@click.option("--sha", default="", help="Local commit SHA for deduplication")
 @click.option("--config", default=str(DEFAULT_CONFIG_PATH), help="Path to config.yaml")
-def run(repo, branch, messages, diff_file, config):
+def run(repo, branch, messages, diff_file, sha, config):
     """Run the spec agent (called by git hook)."""
     logger = logging.getLogger(__name__)
     logger.info("run started — repo=%s branch=%s", repo, branch)
@@ -136,6 +157,14 @@ def run(repo, branch, messages, diff_file, config):
         return
 
     commit_messages = [m.strip() for m in messages.strip().splitlines() if m.strip()]
+
+    if all(_CHORE_RE.match(m) for m in commit_messages if m):
+        logger.info("run skipped — all chores — repo=%s branch=%s", repo, branch)
+        return
+
+    if _is_sha_cached(sha):
+        logger.info("run skipped — SHA already processed — sha=%s repo=%s", sha, repo)
+        return
 
     if not cfg.vault_path.exists():
         console.print(f"[yellow]spec-agent: vault not found at {cfg.vault_path}. Run: spec-agent init[/yellow]")
@@ -161,6 +190,7 @@ def run(repo, branch, messages, diff_file, config):
     except Exception:
         logger.exception("run failed for %s/%s", repo, branch)
         raise
+    _cache_sha(sha)
     logger.info("run finished — repo=%s branch=%s", repo, branch)
     console.print(f"[green]spec-agent:[/green] done — check {cfg.vault_path}")
 
