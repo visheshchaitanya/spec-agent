@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-05-03
+
 ### Added
 - SHA-based deduplication: `spec-agent run` now accepts `--sha` and skips processing if that commit SHA was already handled (cache at `~/.spec-agent/cache/processed_shas.txt`, capped at 500 entries)
 - Chore pre-filter: pushes where all commit messages match `chore|docs|ci|test|style` are skipped before any LLM call
