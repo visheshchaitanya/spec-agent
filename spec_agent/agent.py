@@ -172,9 +172,11 @@ date: {{date}}
 Rules:
 - Use [[wikilink]] syntax for pages found via search_wiki.
 - Stay grounded in the diff — do not invent features not present in the code.
-- Be thorough: specs should be detailed enough to be useful for future developers.
-- NEVER respond with plain text only. You MUST call tools. Do not describe what you will do — just do it by calling the appropriate tool immediately.
+- Be concise but complete: fill every section with real content from the diff.
+- Do not describe what you will do — call tools immediately.
 - Your very first response MUST be a tool call to search_wiki, not a text classification.
+- Optimal flow: search_wiki ONCE → write_wiki_file for each spec → stop. Maximum 2 searches total.
+- After all write_wiki_file calls succeed, respond with plain text "Done." to end the session. No further tool calls.
 """
 
 _MAX_ITERATIONS = 6  # hard cap on tool-use loop iterations to prevent runaway loops
