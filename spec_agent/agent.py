@@ -206,7 +206,7 @@ def _dispatch_tool(name: str, tool_input: dict, vault_path: str) -> str:
         results = search_wiki(vault_path, tool_input["query"], tool_input.get("limit", 5))
         return json.dumps(results)
     elif name == "read_wiki_file":
-        return json.dumps(read_wiki_file(vault_path, tool_input["path"]))
+        return json.dumps(read_wiki_file(vault_path, tool_input["path"]), default=str)
     elif name == "write_wiki_file":
         mode = tool_input.get("mode", "create")
         result = write_wiki_file(vault_path, tool_input["path"], tool_input["content"], mode=mode)
