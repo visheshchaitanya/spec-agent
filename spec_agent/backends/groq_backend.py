@@ -43,11 +43,16 @@ def _parse_llama_xml_tool_call(failed_generation: str) -> ToolCall | None:
         return None
     tool_name = match.group(1)
     args_str = match.group(2)
-    try:
-        args = json.loads(args_str)
-        if isinstance(args, list):
-            args = args[0] if args else {}
-    except json.JSONDecodeError:
+    args = None
+    for candidate in (args_str, args_str.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")):
+        try:
+            parsed = json.loads(candidate)
+            args = parsed[0] if isinstance(parsed, list) and parsed else parsed if isinstance(parsed, dict) else None
+            if args is not None:
+                break
+        except json.JSONDecodeError:
+            continue
+    if args is None:
         return None
     tool_id = f"call_{uuid.uuid4().hex[:8]}"
     return ToolCall(id=tool_id, name=tool_name, arguments=args)
@@ -67,9 +72,9 @@ class GroqBackend(LLMBackend):
 
     @property
     def max_diff_chars(self) -> int:
-        # Groq free tier: 12K TPM. System prompt ~2K tokens, leaving ~8K for diff.
-        # 8K tokens × ~3.5 chars/token ≈ 28K chars.
-        return 28_000
+        # Groq free tier: 12K TPM. System + tools + messages ~4K tokens,
+        # leaving ~4K tokens for diff. 4K × 3.5 chars/token ≈ 14K chars.
+        return 14_000
 
     def chat(
         self,
