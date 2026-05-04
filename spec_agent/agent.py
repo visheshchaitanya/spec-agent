@@ -252,10 +252,12 @@ def run_agent(
             )
 
     diff_cap = backend.max_diff_chars
+    today = __import__("datetime").date.today().isoformat()
     user_message = (
         "Classify this push as one of: feature | bug | refactor | arch | chore.\n"
         "Use the commit message prefix as the primary signal "
         "(feat→feature, fix→bug, refactor→refactor, chore→stop).\n\n"
+        f"Today's date: {today}\n"
         f"Repository: {repo_name}\n"
         f"Branch: {branch}\n"
         "Commit messages:\n" + "\n".join(f"- {m}" for m in commit_messages) +
