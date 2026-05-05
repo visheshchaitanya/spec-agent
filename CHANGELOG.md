@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] — 2026-05-05
+
+### Fixed
+- Inject today's date into agent user message to prevent hallucinated dates in wiki frontmatter
+- Tighten agent prompt to prevent runaway tool calls after `write_wiki_file`
+- Serialize date objects from wiki frontmatter in tool results (fixes JSON serialization error)
+- Handle literal newlines in XML tool call JSON; halve Groq diff cap to reduce parse failures
+
 ## [0.6.1] — 2026-05-03
 
 ### Added
