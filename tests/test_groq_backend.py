@@ -338,10 +338,10 @@ class TestGroqBackend:
         assert result.tool_calls[0].id == "call_first"
         assert result.tool_calls[1].id == "call_second"
 
-    # 21. ast_budget_chars returns None (no truncation needed — 128k context)
+    # 21. ast_budget_chars caps AST block to avoid 413 on large diffs
     def test_ast_budget_chars_is_none(self):
         backend = GroqBackend()
-        assert not hasattr(backend, "ast_budget_chars") or backend.ast_budget_chars is None
+        assert backend.ast_budget_chars == 2_000
 
     # 22. Default model is "llama-3.3-70b-versatile"
     def test_default_model(self):

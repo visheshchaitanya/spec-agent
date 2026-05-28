@@ -3,6 +3,7 @@ import json
 import logging
 import re
 from spec_agent.config import Config
+from spec_agent.backends.base import ContextTooLargeError
 from spec_agent.backends.factory import get_backend
 from spec_agent.tools.wiki_read import read_wiki_file
 from spec_agent.tools.wiki_write import write_wiki_file
@@ -242,9 +243,11 @@ def run_agent(
         try:
             changed_symbols = _extract_diff_symbols(diff[:_DIFF_SYMBOL_CAP])
             if changed_symbols:
-                symbols_note = "\n\nChanged symbols (AST-extracted):\n" + json.dumps(
+                raw_symbols = "\n\nChanged symbols (AST-extracted):\n" + json.dumps(
                     changed_symbols, indent=2
                 )
+                ast_budget = backend.ast_budget_chars
+                symbols_note = raw_symbols[:ast_budget] if ast_budget is not None else raw_symbols
         except Exception:
             logger.warning(
                 "spec-agent: AST diff symbol extraction failed, skipping enrichment",
@@ -253,29 +256,43 @@ def run_agent(
 
     diff_cap = backend.max_diff_chars
     today = __import__("datetime").date.today().isoformat()
-    user_message = (
-        "Classify this push as one of: feature | bug | refactor | arch | chore.\n"
-        "Use the commit message prefix as the primary signal "
-        "(feat→feature, fix→bug, refactor→refactor, chore→stop).\n\n"
-        f"Today's date: {today}\n"
-        f"Repository: {repo_name}\n"
-        f"Branch: {branch}\n"
-        "Commit messages:\n" + "\n".join(f"- {m}" for m in commit_messages) +
-        f"{symbols_note}"
-        f"\n\nGit diff (truncated to {diff_cap:,} chars):\n```\n{diff[:diff_cap]}\n```"
-    )
 
-    messages = [backend.make_user_message(user_message)]
+    def _build_user_message(cap: int) -> str:
+        return (
+            "Classify this push as one of: feature | bug | refactor | arch | chore.\n"
+            "Use the commit message prefix as the primary signal "
+            "(feat→feature, fix→bug, refactor→refactor, chore→stop).\n\n"
+            f"Today's date: {today}\n"
+            f"Repository: {repo_name}\n"
+            f"Branch: {branch}\n"
+            "Commit messages:\n" + "\n".join(f"- {m}" for m in commit_messages) +
+            f"{symbols_note}"
+            f"\n\nGit diff (truncated to {cap:,} chars):\n```\n{diff[:cap]}\n```"
+        )
+
+    messages = [backend.make_user_message(_build_user_message(diff_cap))]
     iteration = 0
 
     while iteration < _MAX_ITERATIONS:
         iteration += 1
-        response = backend.chat(
-            system=_SYSTEM_PROMPT,
-            messages=messages,
-            tools=TOOL_DEFINITIONS,
-            max_tokens=4096,
-        )
+        try:
+            response = backend.chat(
+                system=_SYSTEM_PROMPT,
+                messages=messages,
+                tools=TOOL_DEFINITIONS,
+                max_tokens=4096,
+            )
+        except ContextTooLargeError:
+            if iteration == 1 and diff_cap > 1000:
+                diff_cap //= 2
+                logger.warning(
+                    "spec-agent: request too large, halving diff cap to %d chars and retrying",
+                    diff_cap,
+                )
+                messages = [backend.make_user_message(_build_user_message(diff_cap))]
+                iteration -= 1
+                continue
+            raise
 
         if response.stop_reason == "end_turn":
             logger.debug("agent end_turn at iteration %d, response text: %r", iteration, response.text)

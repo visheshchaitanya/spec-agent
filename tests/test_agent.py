@@ -181,6 +181,7 @@ def test_run_agent_injects_changed_symbols(cfg, vault_dir, mocker):
 
     mock_backend = MagicMock()
     mock_backend.max_diff_chars = 10_000
+    mock_backend.ast_budget_chars = None
     mock_backend.chat.return_value = _make_end_turn_response()
     mock_backend.make_user_message.side_effect = fake_make_user_message
 

@@ -4,6 +4,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+class ContextTooLargeError(RuntimeError):
+    """Raised when a request exceeds the backend's token limit."""
+
+
 @dataclass
 class ToolCall:
     id: str

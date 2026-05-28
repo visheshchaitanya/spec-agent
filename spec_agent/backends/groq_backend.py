@@ -12,6 +12,7 @@ import requests
 
 from spec_agent.backends.base import (
     ChatResponse,
+    ContextTooLargeError,
     LLMBackend,
     ToolCall,
     anthropic_to_openai_tools,
@@ -72,9 +73,16 @@ class GroqBackend(LLMBackend):
 
     @property
     def max_diff_chars(self) -> int:
-        # Groq free tier: 12K TPM. System + tools + messages ~4K tokens,
-        # leaving ~4K tokens for diff. 4K × 3.5 chars/token ≈ 14K chars.
-        return 14_000
+        # Groq free tier: 12K TPM (input + output counted).
+        # Budget: 12K - 4K response - 1.5K system/tools/overhead - 0.6K symbols = ~5.9K tokens for diff.
+        # 5,900 tokens × 3.5 chars/token ≈ 20,650 chars. Use 16,000 for safety margin.
+        return 16_000
+
+    @property
+    def ast_budget_chars(self) -> int | None:
+        # Cap AST/symbols block so it doesn't eat into diff budget.
+        # 2,000 chars ≈ 570 tokens — enough for key changed symbols.
+        return 2_000
 
     def chat(
         self,
@@ -161,6 +169,11 @@ class GroqBackend(LLMBackend):
                         raw_assistant_turn=raw_assistant_turn,
                     )
             raise RuntimeError(f"Groq API error {resp.status_code}: {resp.text}")
+
+        if resp.status_code == 413:
+            raise ContextTooLargeError(
+                f"Groq API error 413: request too large. {resp.text}"
+            )
 
         if resp.status_code != 200:
             raise RuntimeError(
